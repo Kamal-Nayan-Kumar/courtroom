@@ -232,7 +232,7 @@ const CourtroomMain = ({
 
   return (
     <div
-      className={`h-screen flex bg-background relative overflow-hidden ${shaking ? "screen-shake" : ""}`}
+      className={`h-screen flex flex-row-reverse bg-background relative overflow-hidden ${shaking ? "screen-shake" : ""}`}
     >
       {/* Red flash overlay */}
       {redFlash && (
@@ -258,8 +258,8 @@ const CourtroomMain = ({
         )}
       </AnimatePresence>
 
-      {/* LEFT SIDEBAR - Chat Log */}
-      <div className="w-80 flex-shrink-0 border-r border-border bg-card/90 backdrop-blur-sm flex flex-col z-10">
+      {/* RIGHT SIDEBAR - Chat Log */}
+      <div className="w-80 flex-shrink-0 border-l border-border bg-card/90 backdrop-blur-sm flex flex-col z-10">
         <div className="px-4 py-3 border-b border-border">
           <h2 className="text-sm font-display text-primary">
             📜 Court Transcript
