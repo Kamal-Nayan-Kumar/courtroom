@@ -22,13 +22,20 @@ const getCharacterImage = (speaker: Speaker, characterId?: string) => {
 
 const getCharacterHueRotate = (characterId?: string) => {
   switch (characterId) {
-    case "judge-1": return "hue-rotate(15deg)";
-    case "judge-2": return "hue-rotate(90deg)";
-    case "defender-1": return "hue-rotate(60deg)";
-    case "defender-2": return "hue-rotate(180deg)";
-    case "prosecutor-1": return "hue-rotate(0deg)";
-    case "prosecutor-2": return "hue-rotate(-30deg)";
-    default: return "none";
+    case "judge-1":
+      return "hue-rotate(0deg) saturate(1)";
+    case "judge-2":
+      return "hue-rotate(180deg) saturate(1.5) brightness(0.9)";
+    case "defender-1":
+      return "hue-rotate(0deg) saturate(1)";
+    case "defender-2":
+      return "hue-rotate(60deg) saturate(1.8) contrast(1.1)";
+    case "prosecutor-1":
+      return "hue-rotate(0deg) saturate(1)";
+    case "prosecutor-2":
+      return "hue-rotate(220deg) brightness(1.2) saturate(0.8)";
+    default:
+      return "none";
   }
 };
 
@@ -45,7 +52,7 @@ const CharacterSprite = ({
 
   // Cinematic sizing: The characters are designed to be much larger on-screen
   // We'll give standard animated bounding boxes here, and handle massive scale in CourtroomMain's camera.
-  
+
   return (
     <motion.div
       animate={{
@@ -60,21 +67,21 @@ const CharacterSprite = ({
         src={imgSrc}
         alt={speaker}
         className="h-[120%] w-auto object-contain drop-shadow-2xl origin-bottom"
-        style={{ filter: hueStyle, transformOrigin: 'bottom center' }}
+        style={{ filter: hueStyle, transformOrigin: "bottom center" }}
         animate={
-          isActive 
-            ? { 
+          isActive
+            ? {
                 scaleY: [1, 1.02, 1],
                 rotate: [0, 0.5, 0, -0.5, 0],
-                y: [0, -3, 0]
-              } 
+                y: [0, -3, 0],
+              }
             : {
                 scaleY: [1, 1.01, 1], // VERY subtle breathing
               }
         }
         transition={
-          isActive 
-            ? { repeat: Infinity, duration: 2.5, ease: "easeInOut" } 
+          isActive
+            ? { repeat: Infinity, duration: 2.5, ease: "easeInOut" }
             : { repeat: Infinity, duration: 4, ease: "easeInOut" }
         }
       />
