@@ -1,8 +1,8 @@
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @layer base {
   :root {
@@ -64,18 +64,23 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Crimson Text', serif;
+    font-family: "Crimson Text", serif;
   }
 
-  h1, h2, h3, h4, h5, h6 {
-    font-family: 'Playfair Display', serif;
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Playfair Display", serif;
   }
 }
 
 @layer components {
   .court-embossed {
     @apply bg-secondary border border-border px-6 py-3 rounded-lg;
-    box-shadow: 
+    box-shadow:
       inset 0 1px 0 hsl(var(--gold) / 0.15),
       0 2px 8px hsl(0 0% 0% / 0.4),
       0 0 20px hsl(var(--gold) / 0.05);
@@ -83,15 +88,16 @@
   }
 
   .court-embossed:hover {
-    box-shadow: 
+    box-shadow:
       inset 0 1px 0 hsl(var(--gold) / 0.25),
       0 2px 12px hsl(0 0% 0% / 0.5),
       0 0 30px hsl(var(--gold) / 0.15);
   }
 
   .gold-glow {
-    text-shadow: 0 0 20px hsl(var(--gold) / 0.5),
-                 0 0 40px hsl(var(--gold) / 0.3);
+    text-shadow:
+      0 0 20px hsl(var(--gold) / 0.5),
+      0 0 40px hsl(var(--gold) / 0.3);
   }
 
   .spotlight-effect {
@@ -107,23 +113,48 @@
   }
 
   @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
-    20%, 40%, 60%, 80% { transform: translateX(4px); }
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+      transform: translateX(-4px);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+      transform: translateX(4px);
+    }
   }
 
   @keyframes zoom-in-slow {
-    from { transform: scale(1.1); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
+    from {
+      transform: scale(1.1);
+      opacity: 0;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
   }
 
   @keyframes typewriter-blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
   }
 
   .cursor-blink::after {
-    content: '▌';
+    content: "▌";
     animation: typewriter-blink 0.8s infinite;
     color: hsl(var(--gold));
   }
@@ -133,7 +164,11 @@
   }
 
   @keyframes red-flash-anim {
-    0% { background-color: hsl(var(--objection-red) / 0.4); }
-    100% { background-color: transparent; }
+    0% {
+      background-color: hsl(var(--objection-red) / 0.4);
+    }
+    100% {
+      background-color: transparent;
+    }
   }
 }
