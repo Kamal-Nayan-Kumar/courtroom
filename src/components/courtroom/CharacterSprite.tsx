@@ -11,12 +11,7 @@ interface CharacterSpriteProps {
   characterId?: string;
 }
 
-// Temporary mapping until real individual character sprites are added.
-// It maps the chosen character ID to either their specific sprite or the fallback.
 const getCharacterImage = (speaker: Speaker, characterId?: string) => {
-  // If specific images existed, we would do:
-  // if (characterId === 'judge-1') return judge1Img;
-  // For now, we fall back to the generic sprites, but we could add tinting or just leave as is.
   const fallbackSprites: Record<string, string> = {
     judge: judgeImg,
     prosecutor: prosecutorImg,
@@ -27,20 +22,13 @@ const getCharacterImage = (speaker: Speaker, characterId?: string) => {
 
 const getCharacterHueRotate = (characterId?: string) => {
   switch (characterId) {
-    case "judge-1":
-      return "hue-rotate(15deg)";
-    case "judge-2":
-      return "hue-rotate(90deg)";
-    case "defender-1":
-      return "hue-rotate(60deg)";
-    case "defender-2":
-      return "hue-rotate(180deg)";
-    case "prosecutor-1":
-      return "hue-rotate(0deg)";
-    case "prosecutor-2":
-      return "hue-rotate(-30deg)";
-    default:
-      return "none";
+    case "judge-1": return "hue-rotate(15deg)";
+    case "judge-2": return "hue-rotate(90deg)";
+    case "defender-1": return "hue-rotate(60deg)";
+    case "defender-2": return "hue-rotate(180deg)";
+    case "prosecutor-1": return "hue-rotate(0deg)";
+    case "prosecutor-2": return "hue-rotate(-30deg)";
+    default: return "none";
   }
 };
 
@@ -55,25 +43,39 @@ const CharacterSprite = ({
   const imgSrc = getCharacterImage(speaker, characterId);
   const hueStyle = getCharacterHueRotate(characterId);
 
+  // Cinematic sizing: The characters are designed to be much larger on-screen
+  // We'll give standard animated bounding boxes here, and handle massive scale in CourtroomMain's camera.
+  
   return (
     <motion.div
       animate={{
-        scale: isActive ? 1.05 : 1,
         filter: isActive
-          ? "brightness(1.2) drop-shadow(0 0 20px hsl(43 74% 49% / 0.5))"
-          : "brightness(0.8)",
+          ? "brightness(1.15) drop-shadow(0 0 30px hsl(43 74% 49% / 0.4))"
+          : "brightness(0.6) blur(1px)",
       }}
-      transition={{ type: "spring", stiffness: 200, damping: 15 }}
-      className={`relative ${className}`}
+      transition={{ duration: 0.8 }}
+      className={`relative flex items-end justify-center ${className}`}
     >
       <motion.img
         src={imgSrc}
         alt={speaker}
-        className="h-full w-auto object-contain drop-shadow-2xl transition-all duration-300"
-        style={{ filter: hueStyle }}
-        animate={isActive ? { y: [0, -4, 0] } : {}}
+        className="h-[120%] w-auto object-contain drop-shadow-2xl origin-bottom"
+        style={{ filter: hueStyle, transformOrigin: 'bottom center' }}
+        animate={
+          isActive 
+            ? { 
+                scaleY: [1, 1.02, 1],
+                rotate: [0, 0.5, 0, -0.5, 0],
+                y: [0, -3, 0]
+              } 
+            : {
+                scaleY: [1, 1.01, 1], // VERY subtle breathing
+              }
+        }
         transition={
-          isActive ? { repeat: Infinity, duration: 2, ease: "easeInOut" } : {}
+          isActive 
+            ? { repeat: Infinity, duration: 2.5, ease: "easeInOut" } 
+            : { repeat: Infinity, duration: 4, ease: "easeInOut" }
         }
       />
     </motion.div>
