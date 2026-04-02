@@ -65,6 +65,7 @@ const CourtroomMain = ({
   const [waitingForUser, setWaitingForUser] = useState(false);
   const [score, setScore] = useState(50);
   const [round, setRound] = useState(0);
+  const [showTranscript, setShowTranscript] = useState(false);
 
   const [showObjection, setShowObjection] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -265,7 +266,7 @@ const CourtroomMain = ({
             shadows
             camera={{ position: [0, 6, 12], fov: 45 }}
             gl={{
-              powerPreference: "default",
+              powerPreference: "high-performance",
               antialias: false,
               stencil: false,
             }}
@@ -374,6 +375,49 @@ const CourtroomMain = ({
             onObjection={handleObjection}
           />
         </div>
+
+        {/* Transcript Log Button */}
+        <button
+          onClick={() => setShowTranscript(true)}
+          className="absolute bottom-6 right-6 z-50 bg-black/60 hover:bg-black/80 text-white/90 px-5 py-2.5 rounded border border-white/10 backdrop-blur-sm pointer-events-auto transition-all font-display text-xs tracking-widest uppercase hover:border-white/30"
+        >
+          Transcript
+        </button>
+
+        {/* Transcript Overlay Drawer */}
+        <AnimatePresence>
+          {showTranscript && (
+            <motion.div
+              initial={{ opacity: 0, x: "100%" }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="absolute top-0 right-0 w-80 md:w-96 h-full bg-black/90 backdrop-blur-xl border-l border-white/10 shadow-2xl z-[60] flex flex-col pointer-events-auto"
+            >
+              <div className="p-4 border-b border-white/10 flex justify-between items-center">
+                <span className="text-white/80 font-display text-xs tracking-[0.2em] uppercase p-2">Court Transcript</span>
+                <button
+                  onClick={() => setShowTranscript(false)}
+                  className="text-white/50 hover:text-white px-3 py-1 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {dialogues.map((d, i) => (
+                  <div key={i} className="text-sm border-b border-white/5 pb-4 last:border-0 last:pb-0">
+                    <div className={`font-display font-bold text-[10px] uppercase tracking-widest mb-1.5 ${speakerInfo[d.speaker]?.color || "text-white"}`}>
+                      {speakerInfo[d.speaker]?.label || d.speaker}
+                    </div>
+                    <div className="text-white/80 font-serif leading-relaxed text-[15px]">
+                      {d.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
