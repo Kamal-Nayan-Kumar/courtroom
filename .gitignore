@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.venv/
+venv/
+env/
+
+# Secrets & Configuration
+.env
+
+# Testing & Linting
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS & Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Sisyphus AI Agent
+.sisyphus/
