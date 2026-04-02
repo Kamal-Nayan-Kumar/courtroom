@@ -1,15 +1,30 @@
-export type GamePhase = 
-  | 'landing' 
-  | 'case-creation' 
-  | 'loading' 
-  | 'introductions' 
-  | 'trial' 
-  | 'verdict' 
-  | 'report';
+export type GamePhase =
+  | "landing"
+  | "role-selection"
+  | "character-selection"
+  | "case-creation"
+  | "loading"
+  | "introductions"
+  | "trial"
+  | "verdict"
+  | "report";
 
-export type Speaker = 'judge' | 'prosecutor' | 'defender' | 'system';
+export type PlayerRole = "defender" | "prosecutor";
 
-export type CaseType = 'theft' | 'cyber-fraud' | 'property-dispute' | 'workplace' | 'custom';
+export interface CharacterStyles {
+  judge: string;
+  defender: string;
+  prosecutor: string;
+}
+
+export type Speaker = "judge" | "prosecutor" | "defender" | "system";
+
+export type CaseType =
+  | "theft"
+  | "cyber-fraud"
+  | "property-dispute"
+  | "workplace"
+  | "custom";
 
 export interface CaseData {
   title: string;
@@ -26,14 +41,14 @@ export interface DialogueEntry {
 
 export interface TrialState {
   turn: Speaker;
-  phase: 'opening' | 'argument' | 'questioning' | 'closing' | 'verdict';
+  phase: "opening" | "argument" | "questioning" | "closing" | "verdict";
   score: number;
   round: number;
   dialogues: DialogueEntry[];
 }
 
 export interface CaseReport {
-  verdict: 'win' | 'lose';
+  verdict: "win" | "lose";
   confidenceScore: number;
   summary: string;
   argumentStrength: number;
