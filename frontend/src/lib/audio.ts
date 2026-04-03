@@ -111,6 +111,7 @@ function chunkTtsText(text: string, maxChars = MAX_TTS_CHARS): string[] {
 async function fetchSarvamAudio(params: {
   text: string;
   voiceGender: "male" | "female";
+  speaker: "judge" | "prosecutor" | "defender";
   languageCode?: string;
 }): Promise<{ audio_base64?: string; mime_type?: string }> {
   return requestWithRetry<{ audio_base64?: string; mime_type?: string }>(API_ENDPOINT, {
@@ -118,12 +119,13 @@ async function fetchSarvamAudio(params: {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      text: params.text,
-      voice_gender: params.voiceGender,
-      language_code: params.languageCode || "en-IN",
-    }),
-    maxRetries: 3,
+      body: JSON.stringify({
+        text: params.text,
+        voice_gender: params.voiceGender,
+        speaker_role: params.speaker,
+        language_code: params.languageCode || "en-IN",
+      }),
+      maxRetries: 3,
     timeoutMs: 25000,
   });
 }
@@ -163,6 +165,7 @@ export async function playSarvamTts(params: {
           const payload = await fetchSarvamAudio({
             text: chunk,
             voiceGender: params.voiceGender,
+            speaker: params.speaker,
             languageCode: params.languageCode,
           });
 

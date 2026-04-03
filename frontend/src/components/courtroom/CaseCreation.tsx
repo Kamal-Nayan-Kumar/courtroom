@@ -193,7 +193,7 @@ const CaseCreation = ({ onSubmit }: CaseCreationProps) => {
               <label className="block text-xs font-serif font-bold text-[#D4AF37] mb-3 uppercase tracking-[0.2em]">
                 Session Timer
               </label>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={() => setTimerMinutes(1)}
@@ -229,7 +229,7 @@ const CaseCreation = ({ onSubmit }: CaseCreationProps) => {
               <label className="block text-xs font-serif font-bold text-[#D4AF37] mb-3 uppercase tracking-[0.2em]">
                 AI Voice
               </label>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={() => setVoiceGender('female')}

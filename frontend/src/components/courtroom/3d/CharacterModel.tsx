@@ -7,6 +7,7 @@ import { Speaker } from "@/types/courtroom";
 interface CharacterModelProps {
   role: Speaker;
   isTalking: boolean;
+  text?: string;
   color?: string;
   position: [number, number, number];
   rotation?: [number, number, number];
@@ -16,6 +17,7 @@ interface CharacterModelProps {
 export default function CharacterModel({
   role,
   isTalking,
+  text,
   color = "#ffffff",
   position,
   rotation = [0, 0, 0],

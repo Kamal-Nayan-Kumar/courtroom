@@ -47,6 +47,17 @@ class SuggestRequest(BaseModel):
     trial_status: str = ""
 
 
+
+class JudgmentRequest(BaseModel):
+    case_details: str = ""
+    evidence_list: list[str] = Field(default_factory=list)
+    transcript: list[Any] = Field(default_factory=list)
+    player_role: str = ""
+    timer_minutes: int = 5
+
+class JudgmentResponse(BaseModel):
+    judgment: str
+
 class ReportRequest(BaseModel):
     case_details: str = ""
     evidence_list: list[str] = Field(default_factory=list)
@@ -64,6 +75,7 @@ class ReportResponse(BaseModel):
 class TTSRequest(BaseModel):
     text: str = Field(min_length=1)
     voice_gender: str = Field(default="female")
+    speaker_role: str = Field(default="")
     language_code: str = Field(default="en-IN")
 
 
@@ -253,6 +265,35 @@ async def _generate_suggestions(state: SuggestRequest) -> list[str]:
     return cleaned
 
 
+
+def _build_judgment_prompt(state: JudgmentRequest) -> str:
+    payload = {
+        "case_details": state.case_details,
+        "transcript": _flatten_transcript(state.transcript),
+        "player_role": state.player_role,
+        "timer_minutes": state.timer_minutes,
+    }
+    import json
+    return (
+        "You are the Honorable Judge presiding over an Indian court trial. "
+        "The allocated time has expired. Review the arguments and provide a decisive, "
+        "conclusive, and final judgment on the case in the first person. "
+        "Keep it concise (2-3 paragraphs) but authoritative. Return only the structured output with the judgment string.\n\n"
+        f"Trial state:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
+    )
+async def _generate_judgment(state: JudgmentRequest) -> JudgmentResponse:
+    llm = _build_suggestion_llm().with_structured_output(JudgmentResponse)
+    prompt = _build_judgment_prompt(state)
+    import asyncio
+    response = await asyncio.to_thread(llm.invoke, prompt)
+
+    if isinstance(response, JudgmentResponse):
+        return response
+    elif isinstance(response, dict):
+        return JudgmentResponse(**response)
+    else:
+        return JudgmentResponse(judgment=getattr(response, "judgment", ""))
+
 async def _generate_report(state: ReportRequest) -> ReportResponse:
     llm = _build_suggestion_llm().with_structured_output(ReportResponse)
     prompt = _build_report_prompt(state)
@@ -310,11 +351,32 @@ def _normalize_courtroom_speech(text: str) -> str:
     return cleaned.strip()
 
 
-def _select_sarvam_speaker(voice_gender: str) -> str:
-    normalized = voice_gender.strip().lower()
-    if normalized == "male":
-        return "arvind"
-    return "meera"
+_SARVAM_SPEAKERS_BY_GENDER: dict[str, tuple[str, ...]] = {
+    "female": ("kavya", "simran", "pavithra", "swara"),
+    "male": ("amit", "rohan", "arjun", "raman"),
+}
+
+_SPEAKER_BY_ROLE_AND_GENDER: dict[str, dict[str, str]] = {
+    "judge": {"female": "kavya", "male": "amit"},
+    "prosecutor": {"female": "simran", "male": "rohan"},
+    "defender": {"female": "pavithra", "male": "arjun"},
+}
+
+
+def _select_sarvam_speaker(voice_gender: str, speaker_role: str = "") -> str:
+    normalized_gender = voice_gender.strip().lower()
+    normalized_role = speaker_role.strip().lower()
+
+    if normalized_role in _SPEAKER_BY_ROLE_AND_GENDER:
+        role_speakers = _SPEAKER_BY_ROLE_AND_GENDER[normalized_role]
+        if normalized_gender in role_speakers:
+            return role_speakers[normalized_gender]
+
+    speakers = _SARVAM_SPEAKERS_BY_GENDER.get(normalized_gender)
+    if speakers:
+        return speakers[0]
+
+    return _SARVAM_SPEAKERS_BY_GENDER["female"][0]
 
 
 @app.post("/api/v1/cases/upload")
@@ -391,6 +453,18 @@ async def suggest_trial_moves(request: SuggestRequest) -> dict[str, list[str]]:
     return {"suggestions": suggestions}
 
 
+
+@app.post("/api/v1/trial/judgment", response_model=JudgmentResponse)
+async def generate_final_judgment(request: JudgmentRequest) -> JudgmentResponse:
+    try:
+        judgment = await _generate_judgment(request)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Judgment engine failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
+    return judgment
+
 @app.post("/api/v1/trial/report", response_model=ReportResponse)
 async def report_trial_performance(request: ReportRequest) -> ReportResponse:
     try:
@@ -418,7 +492,10 @@ async def generate_tts_audio(request: TTSRequest = Body(...)) -> dict[str, str]:
     payload = {
         "inputs": [request.text],
         "target_language_code": request.language_code,
-        "speaker": _select_sarvam_speaker(request.voice_gender),
+        "speaker": _select_sarvam_speaker(
+            request.voice_gender,
+            request.speaker_role,
+        ),
         "model": "bulbul:v3",
     }
     headers = {

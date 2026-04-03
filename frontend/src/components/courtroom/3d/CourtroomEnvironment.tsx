@@ -193,7 +193,6 @@ export default function CourtroomEnvironment() {
         </mesh>
       </group>
 
-      {/* Judge Bench (Center High) */}
       <RoundedBox
         args={[12, 5, 4]}
         position={[0, 0.5, -9]}

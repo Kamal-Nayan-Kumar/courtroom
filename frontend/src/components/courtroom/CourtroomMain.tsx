@@ -435,9 +435,9 @@ const CourtroomMain = ({
             <Suspense fallback={null}>
               <CameraManager activeSpeaker={currentSpeaker} />
               <CourtroomEnvironment />
-              <CharacterModel role="judge" isTalking={currentSpeaker === "judge"} position={[0, 1.5, -11.2]} color="#3a3a4a" characterId={characterStyles.judge} />
-              <CharacterModel role="defender" isTalking={currentSpeaker === "defender"} position={[8.525, 0.5, -3.243]} rotation={[0, -0.4, 0]} color="#5b483a" characterId={characterStyles.defender} />
-              <CharacterModel role="prosecutor" isTalking={currentSpeaker === "prosecutor"} position={[-8.525, 0.5, -3.243]} rotation={[0, 0.4, 0]} color="#4a3a3a" characterId={characterStyles.prosecutor} />
+              <CharacterModel role="judge" isTalking={currentSpeaker === "judge"} text={currentSpeaker === "judge" ? currentText : undefined} position={[0, 1.5, -11.2]} color="#3a3a4a" characterId={characterStyles.judge} />
+              <CharacterModel role="defender" isTalking={currentSpeaker === "defender"} text={currentSpeaker === "defender" ? currentText : undefined} position={[8.525, 0.5, -3.243]} rotation={[0, -0.4, 0]} color="#5b483a" characterId={characterStyles.defender} />
+              <CharacterModel role="prosecutor" isTalking={currentSpeaker === "prosecutor"} text={currentSpeaker === "prosecutor" ? currentText : undefined} position={[-8.525, 0.5, -3.243]} rotation={[0, 0.4, 0]} color="#4a3a3a" characterId={characterStyles.prosecutor} />
             </Suspense>
           </Canvas>
         </ErrorBoundary>
