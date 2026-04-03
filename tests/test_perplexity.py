@@ -17,17 +17,21 @@ def _load_module(module_name: str, relative_path: str):
     return module
 
 
-perplexity_module = _load_module("rag_perplexity", "rag/perplexity.py")
+web_search_module = _load_module("rag_perplexity", "rag/perplexity.py")
 
 
 def main() -> int:
-    if not os.getenv("PERPLEXITY_API_KEY"):
-        raise SystemExit("PERPLEXITY_API_KEY is not set")
+    if not any(os.getenv(name) for name in ("EXA_API_KEY", "SERPER_API_KEY")):
+        print(
+            "Neither EXA_API_KEY nor SERPER_API_KEY is set. "
+            "Running fallback web search smoke test."
+        )
 
     query = "What is the 2024 Supreme Court ruling on hearsay?"
-    result = perplexity_module.search_indian_legal_precedents.invoke(query)
-    assert isinstance(result, str), "Perplexity tool result must be a string"
-    print("Perplexity tool invocation passed.")
+    result = web_search_module.search_indian_legal_precedents.invoke(query)
+    assert isinstance(result, str), "Web search tool result must be a string"
+    assert "Citations:" in result, "Web search output must include citations"
+    print("Web search tool invocation passed.")
     return 0
 
 

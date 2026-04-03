@@ -8,25 +8,6 @@ interface CaseReportProps {
   onNewCase: () => void;
 }
 
-const ProgressBar = ({ value, label, color }: { value: number; label: string; color: string }) => (
-  <div className="space-y-1">
-    <div className="flex justify-between text-sm">
-      <span className="font-body text-foreground">{label}</span>
-      <span className="font-mono text-muted-foreground">{value}%</span>
-    </div>
-    <div className="h-2.5 bg-muted rounded-full overflow-hidden border border-border">
-      <motion.div
-        initial={{ width: 0 }}
-        animate={{ width: `${value}%` }}
-        transition={{ duration: 1, delay: 0.3 }}
-        className={`h-full rounded-full ${color}`}
-      />
-    </div>
-  </div>
-);
-
-const getBarColor = (v: number) => v >= 70 ? 'bg-verdict-green' : v >= 40 ? 'bg-primary' : 'bg-verdict-red';
-
 const CaseReportScreen = ({ report, onRetry, onNewCase }: CaseReportProps) => {
   const [visible, setVisible] = useState(false);
 
@@ -37,7 +18,12 @@ const CaseReportScreen = ({ report, onRetry, onNewCase }: CaseReportProps) => {
 
   if (!visible) return <div className="min-h-screen bg-background" />;
 
-  const win = report.verdict === 'win';
+  const score = report.score;
+  const win = score >= 50;
+
+  const handleDownload = () => {
+    window.print();
+  };
 
   return (
     <motion.div
@@ -61,92 +47,29 @@ const CaseReportScreen = ({ report, onRetry, onNewCase }: CaseReportProps) => {
             <span className={`text-3xl font-display font-black ${win ? 'text-verdict-green' : 'text-verdict-red'}`}>
               {win ? '✅ NOT GUILTY' : '❌ GUILTY'}
             </span>
-            <span className="text-sm font-mono text-muted-foreground">Confidence: {report.confidenceScore}%</span>
+            <span className="text-sm font-mono text-muted-foreground">Winning Chance: {report.winChance}%</span>
           </div>
-          <p className="text-foreground font-body">{report.summary}</p>
+          <p className="text-foreground font-body">{report.feedback}</p>
         </motion.div>
 
-        {/* Performance */}
         <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 }} className="bg-card border border-border rounded-lg p-6 space-y-4">
-          <h3 className="text-sm font-display text-muted-foreground mb-2">📊 PERFORMANCE BREAKDOWN</h3>
-          <ProgressBar value={report.argumentStrength} label="Argument Strength" color={getBarColor(report.argumentStrength)} />
-          <ProgressBar value={report.evidenceUsage} label="Evidence Usage" color={getBarColor(report.evidenceUsage)} />
-          <ProgressBar value={report.logicalConsistency} label="Logical Consistency" color={getBarColor(report.logicalConsistency)} />
-          <ProgressBar value={report.responseClarity} label="Response Clarity" color={getBarColor(report.responseClarity)} />
-        </motion.div>
-
-        {/* Strengths & Weaknesses */}
-        <div className="grid md:grid-cols-2 gap-4">
-          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.4 }} className="bg-card border border-border rounded-lg p-6">
-            <h3 className="text-sm font-display text-muted-foreground mb-3">⚖️ KEY STRENGTHS</h3>
-            <ul className="space-y-2">
-              {report.strengths.map((s, i) => (
-                <li key={i} className="text-sm font-body text-foreground flex gap-2">
-                  <span className="text-verdict-green">✓</span> {s}
-                </li>
-              ))}
-            </ul>
-          </motion.div>
-
-          <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.4 }} className="bg-card border border-border rounded-lg p-6">
-            <h3 className="text-sm font-display text-muted-foreground mb-3">⚠️ WEAKNESSES</h3>
-            <ul className="space-y-2">
-              {report.weaknesses.map((w, i) => (
-                <li key={i} className="text-sm font-body text-foreground flex gap-2">
-                  <span className="text-verdict-red">✗</span> {w}
-                </li>
-              ))}
-            </ul>
-          </motion.div>
-        </div>
-
-        {/* Suggestions */}
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.5 }} className="bg-card border border-border rounded-lg p-6">
-          <h3 className="text-sm font-display text-muted-foreground mb-3">💡 IMPROVEMENT SUGGESTIONS</h3>
-          <ul className="space-y-2">
-            {report.suggestions.map((s, i) => (
-              <li key={i} className="text-sm font-body text-foreground flex gap-2">
-                <span className="text-primary">→</span> {s}
-              </li>
-            ))}
-          </ul>
-        </motion.div>
-
-        {/* Legal Insight */}
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.6 }} className="bg-card border border-border rounded-lg p-6">
-          <h3 className="text-sm font-display text-muted-foreground mb-3">📚 LEGAL INSIGHT</h3>
-          <p className="text-sm font-body text-foreground italic">{report.legalInsight}</p>
-        </motion.div>
-
-        {/* Strategy */}
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.65 }} className="bg-card border border-border rounded-lg p-6">
-          <h3 className="text-sm font-display text-muted-foreground mb-3">🧠 RECOMMENDED STRATEGY</h3>
-          <ul className="space-y-2">
-            {report.strategy.map((s, i) => (
-              <li key={i} className="text-sm font-body text-foreground flex gap-2">
-                <span className="text-primary">{i + 1}.</span> {s}
-              </li>
-            ))}
-          </ul>
-        </motion.div>
-
-        {/* Gamification */}
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.7 }} className="bg-card border border-border rounded-lg p-6">
-          <h3 className="text-sm font-display text-muted-foreground mb-3">🎮 GAMIFICATION SUMMARY</h3>
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <p className="text-2xl font-display text-primary">{report.xpEarned}</p>
-              <p className="text-xs text-muted-foreground font-body">XP Earned</p>
-            </div>
-            <div>
-              <p className="text-2xl font-display text-foreground">{report.rank}</p>
-              <p className="text-xs text-muted-foreground font-body">Rank</p>
-            </div>
-            <div>
-              <p className="text-2xl">{report.badge.split(' ')[0]}</p>
-              <p className="text-xs text-muted-foreground font-body">{report.badge.split(' ').slice(1).join(' ')}</p>
-            </div>
+          <h3 className="text-sm font-display text-muted-foreground mb-2">📊 SCORE SUMMARY</h3>
+          <div className="text-4xl font-display text-primary">{score}/100</div>
+          <div className="h-2.5 bg-muted rounded-full overflow-hidden border border-border">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${score}%` }}
+              transition={{ duration: 1, delay: 0.3 }}
+              className={`h-full rounded-full ${score >= 70 ? 'bg-verdict-green' : score >= 40 ? 'bg-primary' : 'bg-verdict-red'}`}
+            />
           </div>
+        </motion.div>
+
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }} className="bg-card border border-border rounded-lg p-6">
+          <h3 className="text-sm font-display text-muted-foreground mb-3">📝 DETAILED REPORT (Markdown)</h3>
+          <pre className="whitespace-pre-wrap text-sm font-mono text-foreground/90 bg-muted/50 rounded p-4 overflow-x-auto">
+            {report.markdown || report.feedback}
+          </pre>
         </motion.div>
 
         {/* Action buttons */}
@@ -155,9 +78,9 @@ const CaseReportScreen = ({ report, onRetry, onNewCase }: CaseReportProps) => {
             🔁 Retry Case
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onNewCase} className="court-embossed text-primary font-display cursor-pointer">
-            📋 Start New Case
+            🏠 Start New Session
           </motion.button>
-          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="court-embossed text-muted-foreground font-display cursor-pointer">
+          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleDownload} className="court-embossed text-muted-foreground font-display cursor-pointer">
             📥 Download Report
           </motion.button>
         </motion.div>

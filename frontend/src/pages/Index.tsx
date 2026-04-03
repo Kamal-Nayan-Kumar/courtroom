@@ -1,119 +1,103 @@
 import { useState, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
-  GamePhase,
   CaseData,
   CaseReport,
   PlayerRole,
-  CharacterStyles,
 } from "@/types/courtroom";
-import { generateCaseReport } from "@/lib/mockApi";
+import { useTrialStore } from "@/store/trialStore";
 import LandingScreen from "@/components/courtroom/LandingScreen";
 import RoleSelection from "@/components/courtroom/RoleSelection";
-import CharacterSelection from "@/components/courtroom/CharacterSelection";
 import CaseCreation from "@/components/courtroom/CaseCreation";
 import CourtroomLoading from "@/components/courtroom/CourtroomLoading";
 import CourtroomMain from "@/components/courtroom/CourtroomMain";
-import VerdictScene from "@/components/courtroom/VerdictScene";
 import CaseReportScreen from "@/components/courtroom/CaseReportScreen";
 
-const Index = () => {
-  const [phase, setPhase] = useState<GamePhase>("landing");
-  const [caseData, setCaseData] = useState<CaseData | null>(null);
-  const [playerRole, setPlayerRole] = useState<PlayerRole>("defender");
-  const [characterStyles, setCharacterStyles] =
-    useState<CharacterStyles | null>(null);
-  const [finalScore, setFinalScore] = useState(50);
-  const [report, setReport] = useState<CaseReport | null>(null);
+const DEFAULT_CHARACTER_STYLES = {
+  judge: "judge-1",
+  defender: "defender-1",
+  prosecutor: "prosecutor-1",
+} as const;
 
-  const handleRoleSelect = (role: PlayerRole) => {
-    setPlayerRole(role);
-    setPhase("character-selection");
+const Index = () => {
+  const {
+    phase,
+    setPhase,
+    startPreparation,
+    configureCase,
+    completeTrial,
+    report,
+    playerRole,
+    characterStyles,
+    caseData,
+    resetTrial,
+  } = useTrialStore();
+
+  const [prepStep, setPrepStep] = useState<"role" | "case">("role");
+
+  const handleStart = () => {
+    setPhase("PREPARATION");
+    setPrepStep("role");
   };
 
-  const handleCharacterSelect = (styles: CharacterStyles) => {
-    setCharacterStyles(styles);
-    setPhase("case-creation");
+  const handleRoleSelect = (role: PlayerRole) => {
+    startPreparation(role);
+    setPrepStep("case");
   };
 
   const handleCaseSubmit = (data: CaseData) => {
-    setCaseData(data);
-    setPhase("loading");
+    configureCase(data);
   };
 
   const handleLoadingComplete = useCallback(() => {
-    setPhase("trial");
-  }, []);
+    setPhase("TRIAL_ACTIVE");
+  }, [setPhase]);
 
-  const handleVerdict = (score: number) => {
-    setFinalScore(score);
-    setPhase("verdict");
-  };
-
-  const handleShowReport = async () => {
-    if (!caseData) {
-      setPhase("report");
-      return;
-    }
-
-    const generatedReport = await generateCaseReport(caseData, finalScore);
-    setReport(generatedReport);
-    setPhase("report");
+  const handleTrialComplete = (trialReport: CaseReport) => {
+    completeTrial(trialReport);
   };
 
   const handleRetry = () => {
-    setFinalScore(50);
-    setReport(null);
-    setPhase("loading");
+    if (caseData) {
+      configureCase(caseData);
+    }
   };
 
   const handleNewCase = () => {
-    setCaseData(null);
-    setFinalScore(50);
-    setReport(null);
-    setPhase("case-creation");
+    resetTrial();
+    setPrepStep("role");
   };
 
   return (
     <AnimatePresence mode="wait">
-      {phase === "landing" && (
+      {phase === "MENU" && (
         <LandingScreen
           key="landing"
-          onEnter={() => setPhase("role-selection")}
+          onEnter={handleStart}
         />
       )}
-      {phase === "role-selection" && (
+      {phase === "PREPARATION" && prepStep === "role" && (
         <RoleSelection key="role" onSelect={handleRoleSelect} />
       )}
-      {phase === "character-selection" && (
-        <CharacterSelection
-          key="character"
-          onComplete={handleCharacterSelect}
-        />
-      )}
-      {phase === "case-creation" && (
+      {phase === "PREPARATION" && prepStep === "case" && (
         <CaseCreation key="case" onSubmit={handleCaseSubmit} />
       )}
-      {phase === "loading" && (
-        <CourtroomLoading key="loading" onComplete={handleLoadingComplete} />
+      {phase === "LOADING" && playerRole && (
+        <CourtroomLoading
+          key="loading"
+          onComplete={handleLoadingComplete}
+        />
       )}
-      {phase === "trial" && caseData && characterStyles && (
+      {(phase === "TRIAL_ACTIVE" || phase === "DELIBERATION") && caseData && playerRole && (
         <CourtroomMain
           key="trial"
           caseData={caseData}
           playerRole={playerRole}
-          characterStyles={characterStyles}
-          onVerdict={handleVerdict}
+          characterStyles={characterStyles || DEFAULT_CHARACTER_STYLES}
+          onComplete={handleTrialComplete}
         />
       )}
-      {phase === "verdict" && (
-        <VerdictScene
-          key="verdict"
-          score={finalScore}
-          onContinue={handleShowReport}
-        />
-      )}
-      {phase === "report" && report && (
+      {phase === "POST_MATCH_REPORT" && report && (
         <CaseReportScreen
           key="report"
           report={report}

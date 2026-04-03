@@ -4,9 +4,7 @@ export type GamePhase =
   | "character-selection"
   | "case-creation"
   | "loading"
-  | "introductions"
   | "trial"
-  | "verdict"
   | "report";
 
 export type PlayerRole = "defender" | "prosecutor";
@@ -31,6 +29,7 @@ export interface CaseData {
   type: CaseType;
   description: string;
   severity: number;
+  timerMinutes: 2 | 5 | 10;
   voiceGender: "male" | "female";
 }
 
@@ -49,19 +48,8 @@ export interface TrialState {
 }
 
 export interface CaseReport {
-  verdict: "win" | "lose";
-  confidenceScore: number;
-  summary: string;
-  argumentStrength: number;
-  evidenceUsage: number;
-  logicalConsistency: number;
-  responseClarity: number;
-  strengths: string[];
-  weaknesses: string[];
-  suggestions: string[];
-  legalInsight: string;
-  strategy: string[];
-  xpEarned: number;
-  rank: string;
-  badge: string;
+  score: number;
+  feedback: string;
+  winChance: number;
+  markdown: string;
 }

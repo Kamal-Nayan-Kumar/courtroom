@@ -9,8 +9,7 @@ import websockets
 
 TRIAL_WS_URL = "ws://localhost:8000/api/v1/trial/stream"
 REQUIRED_ENV_VARS = (
-    "GEMINI_API_KEY",
-    "PERPLEXITY_API_KEY",
+    "GITHUB_MODELS_API_KEY",
     "ASTRA_DB_APPLICATION_TOKEN",
     "ASTRA_DB_API_ENDPOINT",
     "ASTRA_DB_NAMESPACE",

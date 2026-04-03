@@ -1,43 +1,44 @@
-import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Canvas } from "@react-three/fiber";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useTrialStore } from "@/store/trialStore";
+import { TrialWebSocketClient } from "@/lib/ws";
 import {
   CaseData,
-  DialogueEntry,
   Speaker,
   PlayerRole,
   CharacterStyles,
+  CaseReport,
 } from "@/types/courtroom";
 import {
-  playGavel,
-  playObjection,
-  speakText,
-  playScoreUp,
-  stopAllSpeech,
-} from "@/lib/sounds";
+  requestFinalJudgment,
+  requestFinalReport,
+  requestTrialSuggestions,
+} from "@/lib/api";
+import { playGavel, playObjection } from "@/lib/sounds";
+import { unlockAudioPlayback, playSarvamTts, stopAudioPlayback } from "@/lib/audio";
 import DialogueOverlay from "./DialogueOverlay";
-import ScoreHUD from "./ScoreHUD";
+import HUD from "./HUD";
+import TranscriptLog from "./TranscriptLog";
 import CourtroomEnvironment from "./3d/CourtroomEnvironment";
 import CharacterModel from "./3d/CharacterModel";
 import CameraManager from "./3d/CameraManager";
-import { generateTrialSuggestions } from "@/lib/mockApi";
-import { playSarvamTts } from "@/lib/audio";
 
 interface CourtroomMainProps {
   caseData: CaseData;
   playerRole: PlayerRole;
   characterStyles: CharacterStyles;
-  onVerdict: (score: number) => void;
+  onComplete: (report: CaseReport) => void;
 }
 
-const TOTAL_ROUNDS = 4;
+const speakerOrder: Speaker[] = ["judge", "prosecutor", "defender", "system"];
 
 const CourtroomMain = ({
   caseData,
   playerRole,
   characterStyles,
-  onVerdict,
+  onComplete,
 }: CourtroomMainProps) => {
   const speakerInfo: Record<Speaker, { label: string; color: string }> = {
     judge: { label: "Honorable Judge", color: "text-primary" },
@@ -52,458 +53,325 @@ const CourtroomMain = ({
     system: { label: "Court", color: "text-muted-foreground" },
   };
 
-  const [dialogues, setDialogues] = useState<DialogueEntry[]>([]);
-  const [currentText, setCurrentText] = useState("");
-  const [currentSpeaker, setCurrentSpeaker] = useState<Speaker>("system");
-  const [isTyping, setIsTyping] = useState(false);
-  const [userInput, setUserInput] = useState("");
-  const [waitingForUser, setWaitingForUser] = useState(false);
-  const [score, setScore] = useState(50);
-  const [round, setRound] = useState(0);
+  const transcript = useTrialStore((s) => s.transcript);
+  const currentSpeaker = useTrialStore((s) => s.activeSpeaker);
+  const isTyping = useTrialStore((s) => s.aiTyping);
+  const waitingForUser = useTrialStore((s) => s.waitingForUserInput);
+  const currentTurn = useTrialStore((s) => s.currentTurn);
+  const timerRemainingSec = useTrialStore((s) => s.hud.timerRemainingSec);
+  const wsConnected = useTrialStore((s) => s.ws.status === "connected");
+  const wsError = useTrialStore((s) => s.ws.error);
+  const trialEnded = useTrialStore((s) => s.trialStatus === "concluded" || s.trialStatus === "deliberating");
+  const phase = useTrialStore((s) => s.phase);
 
+  const [currentText, setCurrentText] = useState("");
+  const [userInput, setUserInput] = useState("");
+  const [showTranscript, setShowTranscript] = useState(true);
   const [showObjection, setShowObjection] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [redFlash, setRedFlash] = useState(false);
-  const [isListeningVoice, setIsListeningVoice] = useState(false);
-  const [isSuggestionLoading, setIsSuggestionLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
-  const typeTimeoutRef = useRef<NodeJS.Timeout>();
-  const sequenceRef = useRef(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  const threadIdRef = useRef<string>(Math.random().toString(36).substring(7));
+  const roleSpeaker: Speaker = playerRole === "prosecutor" ? "prosecutor" : "defender";
+  const timerMinutes = caseData.timerMinutes;
+  const voiceGender = caseData.voiceGender;
+  const caseSummary = `${caseData.title}\n${caseData.description}`;
+  const timerLabel = useMemo(() => {
+    const totalSeconds = Math.max(0, timerRemainingSec);
+    const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${minutes}:${seconds}`;
+  }, [timerRemainingSec]);
 
-  const roundRef = useRef(round);
-  const scoreRef = useRef(score);
-  const transcriptRef = useRef<DialogueEntry[]>([]);
-  const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
+  const wsClientRef = useRef<TrialWebSocketClient | null>(null);
+  const finalizingRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const initializedRef = useRef(false);
+  const turnQueueRef = useRef<{ speaker: Speaker, content: string, currentTurn: string, playAudio?: boolean }[]>([]);
+  const isProcessingQueueRef = useRef(false);
 
-  useEffect(() => {
-    roundRef.current = round;
-  }, [round]);
+  const processAudioQueue = useCallback(async () => {
+    if (isProcessingQueueRef.current) return;
+    isProcessingQueueRef.current = true;
 
-  useEffect(() => {
-    scoreRef.current = score;
-  }, [score]);
+    while (turnQueueRef.current.length > 0) {
+      const turn = turnQueueRef.current.shift();
+      if (!turn) continue;
 
-  useEffect(() => {
-    transcriptRef.current = dialogues;
-  }, [dialogues]);
+      useTrialStore.getState().setActiveSpeaker(turn.speaker);
+      setCurrentText(turn.content);
+      useTrialStore.getState().setAiTyping(true);
+      useTrialStore.getState().appendTranscript({
+        speaker: turn.speaker,
+        text: turn.content,
+        timestamp: Date.now(),
+      });
+      
+      if (turn.speaker === "judge") {
+        playGavel();
+      }
 
-  useEffect(() => {
-    if (!transcriptContainerRef.current) {
-      return;
+      const nextTurn = turn.currentTurn.trim() || useTrialStore.getState().currentTurn;
+      useTrialStore.getState().setCurrentTurn(nextTurn);
+      useTrialStore.getState().setWaitingForUserInput(nextTurn === playerRole);
+      useTrialStore.getState().setAiTyping(false);
+
+      const shouldPlayAudio = turn.playAudio ?? (
+        turn.speaker !== roleSpeaker &&
+        (turn.speaker === "judge" || turn.speaker === "prosecutor" || turn.speaker === "defender")
+      );
+
+      if (shouldPlayAudio && (turn.speaker === "judge" || turn.speaker === "prosecutor" || turn.speaker === "defender")) {
+        try {
+          await playSarvamTts({
+            text: turn.content,
+            voiceGender,
+            speaker: turn.speaker,
+          });
+        } catch (err) {
+          console.warn("Failed to play TTS for turn", err);
+        }
+      }
     }
 
-    transcriptContainerRef.current.scrollTop =
-      transcriptContainerRef.current.scrollHeight;
-  }, [dialogues, currentText, isTyping]);
+    isProcessingQueueRef.current = false;
+  }, [playerRole, roleSpeaker, voiceGender]);
 
-  const typeText = useCallback(
-    (text: string, speaker: Speaker): Promise<void> => {
-      return new Promise((resolve) => {
-        if (!text) {
-          resolve();
-          return;
-        }
+  const handleIncomingTurn = useCallback(
+    (parsed: { event?: string; turn?: string; content?: string; current_turn?: string }) => {
+      if (parsed.event === "resumed") {
+        const nextTurn = (parsed.current_turn || "").trim() || useTrialStore.getState().currentTurn;
+        useTrialStore.getState().setCurrentTurn(nextTurn);
+        useTrialStore.getState().setWaitingForUserInput(nextTurn === playerRole);
+        return;
+      }
 
-        if (typeTimeoutRef.current) {
-          clearTimeout(typeTimeoutRef.current);
-        }
+      if (!parsed.turn || !parsed.content) return;
 
-        setCurrentSpeaker(speaker);
-        setIsTyping(true);
-        setCurrentText("");
+      const normalizedTurn = parsed.turn.toLowerCase();
+      const speaker = speakerOrder.includes(normalizedTurn as Speaker)
+        ? (normalizedTurn as Speaker)
+        : "system";
 
-        let i = 0;
-        const type = () => {
-          if (i < text.length) {
-            const partial = text.slice(0, i + 1);
-            setCurrentText(partial);
-            i++;
-            typeTimeoutRef.current = setTimeout(type, 35);
-          } else {
-            setIsTyping(false);
-            setDialogues((prev) => [
-              ...prev,
-              { speaker, text, timestamp: Date.now() },
-            ]);
-            setTimeout(() => {
-              if (speaker !== playerRole) {
-                setCurrentText("");
-                resolve();
-              }
-            }, 1000);
-
-            if (speaker === playerRole) resolve();
-          }
-        };
-        type();
-
-        if (speaker !== "system" && speaker !== playerRole) {
-          void playSarvamTts({
-            text,
-            voiceGender: caseData.voiceGender,
-            languageCode: "en-IN",
-          }).then((played) => {
-            if (!played) {
-              speakText(text, speaker);
-            }
-          });
-        }
+      turnQueueRef.current.push({
+        speaker,
+        content: parsed.content,
+        currentTurn: parsed.current_turn || "",
       });
+
+      void processAudioQueue();
     },
-    [playerRole, caseData.voiceGender],
+    [playerRole, processAudioQueue],
   );
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl =
-      window.location.hostname === "localhost"
-        ? "ws://localhost:8000/api/v1/trial/stream"
-        : `${protocol}//${window.location.host}/api/v1/trial/stream`;
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    if (useTrialStore.getState().transcript.length === 0) {
+      const openingAnnouncement = `Case starting: ${caseData.title}. ${caseData.description}`;
+      useTrialStore.getState().setActiveSpeaker("system");
+      useTrialStore.getState().setAiTyping(false);
+      useTrialStore.getState().appendTranscript({
+        speaker: "system",
+        text: openingAnnouncement,
+        timestamp: Date.now(),
+      });
+      setCurrentText(openingAnnouncement);
+    }
 
-    ws.onopen = () => {
-      console.log("WebSocket connected");
-    };
-
-    ws.onmessage = async (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.error) {
-          console.error("WebSocket Error:", data.error);
-          return;
-        }
-
-        const speaker = data.currentSpeaker || data.speaker || data.turn;
-        const content = data.content;
-        const newScore = data.scores !== undefined ? data.scores : data.score;
-
-        if (newScore !== undefined) {
-          setScore(newScore);
-        }
-
-        if (data.event === "done" || data.type === "done" || data.done) {
-          setWaitingForUser(true);
-          setCurrentSpeaker(playerRole);
-          return;
-        }
-
-        if (speaker && content) {
-          await typeText(content, speaker as Speaker);
-
-          if (speaker === "judge") {
-            playGavel();
-            if (roundRef.current < TOTAL_ROUNDS) {
-              setRound((r) => r + 1);
-            } else {
-              await new Promise((r) => setTimeout(r, 1000));
-              onVerdict(newScore !== undefined ? newScore : scoreRef.current);
-            }
+    const client = new TrialWebSocketClient({
+      playerRole,
+      caseDetails: caseSummary,
+      startupMessage: `The trial is beginning. Case: ${caseData.title}.`,
+      isResume: useTrialStore.getState().transcript.length > 0,
+      onStatus: (status) => useTrialStore.getState().setWsStatus(status),
+      onError: (error) => useTrialStore.getState().setWsError(error),
+      onOpen: () => {
+        void unlockAudioPlayback();
+        const initialTurn = playerRole === "prosecutor" ? "defender" : "prosecutor";
+        useTrialStore.getState().setCurrentTurn(initialTurn);
+        useTrialStore.getState().setWaitingForUserInput(false);
+      },
+      onMessage: async (msg) => {
+        if (msg.event === "done") {
+          if (useTrialStore.getState().hud.timerRemainingSec === 0 || useTrialStore.getState().trialStatus === "concluded" || useTrialStore.getState().trialStatus === "deliberating") {
+            return;
           }
+          useTrialStore.getState().setWaitingForUserInput(useTrialStore.getState().currentTurn === playerRole);
+          return;
         }
-      } catch (err) {
-        console.error("Failed to parse websocket message", err);
-      }
-    };
 
-    ws.onclose = () => {
-      console.log("WebSocket disconnected");
-    };
+        if (msg.event === "turn" || (msg.turn && msg.content)) {
+          await handleIncomingTurn(msg);
+        }
+      },
+    });
+
+    wsClientRef.current = client;
+    client.connect();
 
     return () => {
-      if (
-        ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING
-      ) {
-        ws.close();
+      initializedRef.current = false;
+      client.close();
+      stopAudioPlayback();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
     };
-  }, [playerRole, onVerdict, typeText]);
-
-  const runSequence = useCallback(async () => {
-    if (sequenceRef.current) return;
-    sequenceRef.current = true;
-
-    await typeText(
-      `This court is now hearing the case: "${caseData.title}". A ${caseData.type.replace("-", " ")} matter of severity level ${caseData.severity}%.`,
-      "judge",
-    );
-    await new Promise((r) => setTimeout(r, 600));
-    playGavel();
-
-    await typeText(
-      "The prosecution may present their opening argument.",
-      "judge",
-    );
-    await new Promise((r) => setTimeout(r, 600));
-
-    const waitForWs = async () => {
-      let attempts = 0;
-      while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 40) {
-        await new Promise((r) => setTimeout(r, 250));
-        attempts++;
-      }
-      return wsRef.current?.readyState === WebSocket.OPEN;
-    };
-
-    const isConnected = await waitForWs();
-
-    if (isConnected && wsRef.current) {
-      wsRef.current.send(JSON.stringify({
-        message: `Initialize trial: ${caseData.description}`,
-        thread_id: threadIdRef.current,
-        player_role: playerRole,
-        case_details: caseData.description,
-      }));
-    } else {
-      console.error("WebSocket failed to connect after timeout");
-      await typeText("Court connection failed. Please refresh the page.", "system");
-      setWaitingForUser(true);
-      setCurrentSpeaker(playerRole);
-    }
-  }, [caseData, typeText, playerRole]);
+  }, [caseData.title, handleIncomingTurn, playerRole, caseSummary]);
 
   const handleUserSubmit = async () => {
-    if (!userInput.trim() || !waitingForUser) return;
-    setWaitingForUser(false);
-    const response = userInput;
+    if (!userInput.trim() || !waitingForUser || !wsClientRef.current || trialEnded) {
+      return;
+    }
+
+    const text = userInput.trim();
     setUserInput("");
+    useTrialStore.getState().setWaitingForUserInput(false);
 
-    await typeText(response, playerRole);
-    await new Promise((r) => setTimeout(r, 800));
-    setCurrentText("");
+    turnQueueRef.current.push({
+      speaker: roleSpeaker,
+      content: text,
+      currentTurn: "",
+    });
+    void processAudioQueue();
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        message: response,
-        thread_id: threadIdRef.current,
-        player_role: playerRole,
-        case_details: caseData.description,
-      }));
-    } else {
-      console.warn("WebSocket not ready for submit");
-      setWaitingForUser(true);
+    wsClientRef.current.send({
+      message: text,
+      player_role: playerRole,
+      case_details: caseSummary,
+    });
+  };
+
+  const handleRequestSuggestion = async () => {
+    if (!waitingForUser || trialEnded) return;
+    setSuggestionLoading(true);
+    try {
+      const items = await requestTrialSuggestions({
+        caseData,
+        transcript,
+        currentTurn,
+      });
+      setSuggestions(items);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Suggestion request failed.";
+      useTrialStore.getState().setWsError(message);
+    } finally {
+      setSuggestionLoading(false);
     }
   };
 
+  const handleApplySuggestion = async (suggestion: string) => {
+    if (!waitingForUser || trialEnded || !wsClientRef.current) return;
+
+    setSuggestions([]);
+    setUserInput("");
+
+    useTrialStore.getState().setWaitingForUserInput(false);
+    
+    turnQueueRef.current.push({
+      speaker: roleSpeaker,
+      content: suggestion,
+      currentTurn: "",
+      playAudio: true,
+    });
+    void processAudioQueue();
+
+    wsClientRef.current.send({
+      message: suggestion,
+      player_role: playerRole,
+      case_details: caseSummary,
+    });
+  };
+
   const handleObjection = () => {
+    if (!waitingForUser || trialEnded) return;
     playObjection();
     setShaking(true);
     setRedFlash(true);
     setShowObjection(true);
 
-    // Slight pause of normal logic implies stopping the typing temporarily
-    if (typeTimeoutRef.current) clearTimeout(typeTimeoutRef.current);
-    stopAllSpeech();
-
     setTimeout(() => setShaking(false), 500);
     setTimeout(() => setRedFlash(false), 400);
     setTimeout(() => setShowObjection(false), 1500);
-
-    const bonus = Math.floor(Math.random() * 5) + 3;
-    setScore((s) => Math.min(100, s + bonus));
-    playScoreUp();
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        message: "OBJECTION!",
-        thread_id: threadIdRef.current,
-        player_role: playerRole,
-        case_details: caseData.description,
-      }));
-    }
   };
 
-  const handleAskSuggestion = async () => {
-    if (!waitingForUser || isSuggestionLoading) {
-      return;
-    }
+  const handleToggleMic = () => {
+    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor || trialEnded || isFinalizing) return;
 
-    setIsSuggestionLoading(true);
-    try {
-      const response = await generateTrialSuggestions({
-        case_details: caseData.description,
-        evidence_list: [],
-        transcript: transcriptRef.current.map((entry) => ({
-          role: entry.speaker,
-          content: entry.text,
-        })),
-        current_turn: playerRole,
-        active_objection: {},
-        trial_status: "ongoing",
-      });
-
-      const suggestionText = response.suggestions.join("\n• ");
-      await typeText(`Suggested strategy:\n• ${suggestionText}`, "system");
-    } catch (error) {
-      console.error("Failed to fetch AI suggestions", error);
-      await typeText(
-        "Suggestion engine is unavailable at the moment. Please proceed with your strongest factual argument.",
-        "system",
-      );
-    } finally {
-      setIsSuggestionLoading(false);
-      setWaitingForUser(true);
-      setCurrentSpeaker(playerRole);
-    }
-  };
-
-  const handleVoiceInput = () => {
-    if (!waitingForUser) {
-      return;
-    }
-
-    if (recognitionRef.current && isListeningVoice) {
+    if (isListening && recognitionRef.current) {
       recognitionRef.current.stop();
-      setIsListeningVoice(false);
+      setIsListening(false);
       return;
     }
 
-    const SpeechRecognitionImpl =
-      (window as Window & { webkitSpeechRecognition?: new () => SpeechRecognition })
-        .webkitSpeechRecognition ||
-      (window as Window & { SpeechRecognition?: new () => SpeechRecognition })
-        .SpeechRecognition;
-
-    if (!SpeechRecognitionImpl) {
-      void typeText(
-        "Voice input is not supported in this browser. Please type your argument.",
-        "system",
-      );
-      return;
-    }
-
-    const recognition = new SpeechRecognitionImpl();
-    recognitionRef.current = recognition;
+    const recognition = new SpeechRecognitionCtor();
     recognition.lang = "en-IN";
     recognition.continuous = true;
     recognition.interimResults = true;
 
-    setIsListeningVoice(true);
-
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const latestIndex = event.results.length - 1;
-      const spoken = event.results?.[latestIndex]?.[0]?.transcript?.trim();
-      if (spoken) {
-        setUserInput((existing) => (existing ? `${existing} ${spoken}` : spoken));
+      let finalTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscript += result[0]?.transcript || "";
+        }
+      }
+      if (finalTranscript.trim()) {
+        setUserInput((prev) => `${prev} ${finalTranscript}`.trim());
       }
     };
 
-    recognition.onerror = () => {
-      setIsListeningVoice(false);
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
     };
 
-    recognition.onend = () => {
-      setIsListeningVoice(false);
+    recognition.onerror = () => {
+      setIsListening(false);
       recognitionRef.current = null;
     };
 
     recognition.start();
+    recognitionRef.current = recognition;
+    setIsListening(true);
   };
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      runSequence();
-    }, 1500);
-    return () => {
-      clearTimeout(timer);
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, [runSequence]);
-
   return (
-    <div
-      className={`w-full h-screen bg-black relative overflow-hidden font-sans ${shaking ? "screen-shake" : ""}`}
-    >
-      {/* 
-        ==============================
-        3D CINEMATIC CAMERA LAYER
-        ==============================
-      */}
-      <div className="absolute inset-0 z-0">
+    <div className={`flex relative w-full h-screen bg-black overflow-hidden font-sans ${shaking ? "screen-shake" : ""}`}>
+      <div className="flex-1 relative h-full">
+        <div className="absolute inset-0 z-0">
         <ErrorBoundary>
           <Canvas
             shadows
             camera={{ position: [0, 6, 12], fov: 45 }}
-            gl={{
-              powerPreference: "default",
-              antialias: false,
-              stencil: false,
-            }}
+            gl={{ powerPreference: "high-performance", antialias: false, stencil: false }}
             onCreated={({ gl }) => {
               gl.domElement.addEventListener("webglcontextlost", (e) => {
                 e.preventDefault();
-                console.warn("WebGL context lost");
+                useTrialStore.getState().setWsError("Graphics context lost. Please refresh.");
               });
             }}
           >
             <Suspense fallback={null}>
               <CameraManager activeSpeaker={currentSpeaker} />
               <CourtroomEnvironment />
-
-              {/* Judge Model */}
-              {/* Judge Bench is at [0, 0.5, -9], args=[12, 5, 4], half-depth=2. 
-                Back edge is at z=-11. We place judge slightly behind at -11.2 to avoid clipping.
-                Height of floor is -2, bench is 5 tall, centered at 0.5. Top is at y=3.
-                We place character essentially on the floor, or slightly above. */}
-              <CharacterModel
-                role="judge"
-                isTalking={currentSpeaker === "judge"}
-                position={[0, 1.5, -11.2]}
-                color="#3a3a4a"
-                characterId={characterStyles.judge}
-              />
-
-              {/* Defender Model */}
-              {/* Defender Bench: position={[8, -0.5, -2]}, rotation={[0, -0.4, 0]}, args=[6, 3.5, 2.5]
-                To be exactly behind the center of the desk along its local Z axis:
-                x = 8 + sin(-0.4) * -1.35 ≈ 8 + (-0.389 * -1.35) = 8.525
-                z = -2 + cos(-0.4) * -1.35 ≈ -2 + (0.921 * -1.35) = -3.243 */}
-              <CharacterModel
-                role="defender"
-                isTalking={currentSpeaker === "defender"}
-                position={[8.525, 0.5, -3.243]}
-                rotation={[0, -0.4, 0]}
-                color="#5b483a"
-                characterId={characterStyles.defender}
-              />
-
-              {/* Prosecutor Model */}
-              {/* Prosecutor Bench: position={[-8, -0.5, -2]}, rotation={[0, 0.4, 0]}
-                x = -8 + sin(0.4) * -1.35 ≈ -8 + (0.389 * -1.35) = -8.525
-                z = -2 + cos(0.4) * -1.35 ≈ -2 + (0.921 * -1.35) = -3.243 */}
-              <CharacterModel
-                role="prosecutor"
-                isTalking={currentSpeaker === "prosecutor"}
-                position={[-8.525, 0.5, -3.243]}
-                rotation={[0, 0.4, 0]}
-                color="#4a3a3a"
-                characterId={characterStyles.prosecutor}
-              />
+              <CharacterModel role="judge" isTalking={currentSpeaker === "judge"} position={[0, 1.5, -11.2]} color="#3a3a4a" characterId={characterStyles.judge} />
+              <CharacterModel role="defender" isTalking={currentSpeaker === "defender"} position={[8.525, 0.5, -3.243]} rotation={[0, -0.4, 0]} color="#5b483a" characterId={characterStyles.defender} />
+              <CharacterModel role="prosecutor" isTalking={currentSpeaker === "prosecutor"} position={[-8.525, 0.5, -3.243]} rotation={[0, 0.4, 0]} color="#4a3a3a" characterId={characterStyles.prosecutor} />
             </Suspense>
           </Canvas>
         </ErrorBoundary>
       </div>
 
-      {/* 
-        ==============================
-        OVERLAY / POST-PROCESS LAYER
-        ==============================
-      */}
+      {redFlash && <div className="absolute inset-0 bg-red-600/40 mix-blend-multiply z-30 pointer-events-none" />}
 
-      {/* Red flash overlay */}
-      {redFlash && (
-        <div className="absolute inset-0 bg-red-600/40 mix-blend-multiply z-30 pointer-events-none" />
-      )}
-
-      {/* Objection overlay */}
       <AnimatePresence>
         {showObjection && (
           <motion.div
@@ -512,13 +380,7 @@ const CourtroomMain = ({
             exit={{ opacity: 0, scale: 0.5 }}
             className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none"
           >
-            <span
-              className="text-7xl md:text-9xl font-display font-black text-destructive tracking-[0.1em]"
-              style={{
-                textShadow: "0 0 50px hsl(0 85% 55% / 1)",
-                WebkitTextStroke: "2px white",
-              }}
-            >
+            <span className="text-7xl md:text-9xl font-display font-black text-destructive tracking-[0.1em]" style={{ textShadow: "0 0 50px hsl(0 85% 55% / 1)", WebkitTextStroke: "2px white" }}>
               OBJECTION!
             </span>
           </motion.div>
@@ -526,82 +388,61 @@ const CourtroomMain = ({
       </AnimatePresence>
 
       <div className="relative z-40 pointer-events-none w-full h-full">
-        <ScoreHUD score={score} round={round} totalRounds={TOTAL_ROUNDS} />
+        <HUD 
+          timerLabel={timerLabel} 
+          activeSpeaker={currentSpeaker} 
+          phase={phase} 
+        />
 
-        <div className="absolute top-6 right-6 bottom-40 w-[360px] max-w-[42vw] bg-black/65 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl pointer-events-auto overflow-hidden">
-          <div className="px-4 py-3 border-b border-white/10">
-            <h3 className="text-sm font-display uppercase tracking-widest text-gold-light">
-              Courtroom Transcript
-            </h3>
+        <div className="absolute top-6 right-6 z-40 flex flex-col gap-2 pointer-events-auto">
+          <div className="bg-black/60 border border-white/10 rounded px-3 py-2 text-xs text-white/90">
+            <span className={wsConnected ? "text-green-400" : "text-yellow-300"}>
+              {wsConnected ? "Live" : "Reconnecting"}
+            </span>
+            {isFinalizing && <span className="ml-2 text-primary">Finalizing...</span>}
           </div>
-          <div
-            ref={transcriptContainerRef}
-            className="h-full overflow-y-auto px-3 py-3 space-y-3"
+          <button 
+            onClick={() => useTrialStore.getState().resetTrial()}
+            className="bg-red-900/60 hover:bg-red-800/80 border border-red-500/30 rounded px-3 py-2 text-xs text-white/90 transition-colors"
           >
-            {dialogues.map((entry) => {
-              const label = speakerInfo[entry.speaker].label;
-              const color = speakerInfo[entry.speaker].color;
-              const isUserSpeaker = entry.speaker === playerRole;
-              return (
-                <div
-                  key={`${entry.timestamp}-${entry.speaker}`}
-                  className={`border rounded-md px-3 py-2 ${
-                    isUserSpeaker
-                      ? "bg-primary/10 border-primary/30"
-                      : "bg-black/45 border-white/10"
-                  }`}
-                >
-                  <div
-                    className={`text-[11px] uppercase tracking-widest font-display mb-1 ${color}`}
-                  >
-                    {label}
-                  </div>
-                <p className="text-sm text-white/90 leading-relaxed font-serif whitespace-pre-wrap">
-                  {entry.text}
-                </p>
-              </div>
-            );
-            })}
-            {isTyping && currentText ? (
-              <div className="bg-black/45 border border-gold-light/30 rounded-md px-3 py-2">
-                <div
-                  className={`text-[11px] uppercase tracking-widest font-display mb-1 ${
-                    currentSpeaker !== "system"
-                      ? speakerInfo[currentSpeaker].color
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  {currentSpeaker !== "system"
-                    ? speakerInfo[currentSpeaker].label
-                    : "Court"}
-                </div>
-                <p className="text-sm text-white/90 leading-relaxed font-serif whitespace-pre-wrap">
-                  {currentText}
-                </p>
-              </div>
-            ) : null}
-          </div>
+            End Trial
+          </button>
         </div>
+
+        {wsError && (
+          <div className="absolute top-16 right-6 z-40 max-w-md bg-red-900/60 border border-red-400/30 text-red-100 text-xs px-3 py-2 rounded pointer-events-auto">
+            {wsError}
+          </div>
+        )}
 
         <div className="pointer-events-auto">
           <DialogueOverlay
-            speakerInfo={
-              currentSpeaker !== "system" ? speakerInfo[currentSpeaker] : null
-            }
+            speakerInfo={currentSpeaker !== "system" ? speakerInfo[currentSpeaker] : null}
             text={currentText}
             isTyping={isTyping}
             waitingForUser={waitingForUser}
+            isInputDisabled={trialEnded || isFinalizing}
             userInput={userInput}
+            suggestionItems={suggestions}
+            suggestionLoading={suggestionLoading}
+            onRequestSuggestion={handleRequestSuggestion}
+            onApplySuggestion={handleApplySuggestion}
+            isListening={isListening}
+            onToggleMic={handleToggleMic}
             setUserInput={setUserInput}
             onSubmit={handleUserSubmit}
             onObjection={handleObjection}
-            onAskSuggestion={handleAskSuggestion}
-            onStartVoiceInput={handleVoiceInput}
-            isListeningVoice={isListeningVoice}
-            isSuggestionLoading={isSuggestionLoading}
           />
         </div>
       </div>
+      </div>
+
+      <TranscriptLog
+        showTranscript={showTranscript}
+        setShowTranscript={setShowTranscript}
+        transcript={transcript}
+        speakerInfo={speakerInfo}
+      />
     </div>
   );
 };

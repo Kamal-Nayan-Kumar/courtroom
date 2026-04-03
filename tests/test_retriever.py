@@ -59,6 +59,7 @@ def _run_mocked_tool_invocation() -> None:
 
     assert isinstance(result, str), "Retriever tool result must be a string"
     assert "302" in result, "Retriever tool result should include relevant evidence"
+    assert "Citations:" in result, "Retriever output should include citations section"
 
 
 def main() -> int:

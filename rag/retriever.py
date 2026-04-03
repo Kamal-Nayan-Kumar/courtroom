@@ -37,14 +37,40 @@ def retrieve_case_evidence_from_store(query: str, vector_store) -> str:
         return "No matching case evidence found for the provided query."
 
     evidence_blocks: list[str] = []
+    citation_lines: list[str] = []
     for index, document in enumerate(documents, start=1):
         source = (
             document.metadata.get("source", "unknown")
             if document.metadata
             else "unknown"
         )
+        chunk_index = (
+            document.metadata.get("chunk_index", "?") if document.metadata else "?"
+        )
+        case_id = (
+            document.metadata.get("case_id", "uploaded_case")
+            if document.metadata
+            else "uploaded_case"
+        )
+        citation_id = f"case:{index}"
         evidence_blocks.append(
-            f"Evidence {index} (source: {source}):\n{document.page_content}"
+            "\n".join(
+                [
+                    f"Evidence {index} [{citation_id}]",
+                    f"Source: {source}",
+                    f"Case: {case_id}",
+                    f"Chunk: {chunk_index}",
+                    f"Excerpt: {document.page_content}",
+                ]
+            )
+        )
+        citation_lines.append(
+            f"[{citation_id}] {source} (case={case_id}, chunk={chunk_index})"
         )
 
-    return "\n\n".join(evidence_blocks)
+    return (
+        "Retrieved case evidence with citations:\n\n"
+        + "\n\n".join(evidence_blocks)
+        + "\n\nCitations:\n"
+        + "\n".join(citation_lines)
+    )

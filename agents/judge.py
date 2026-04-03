@@ -38,6 +38,7 @@ Output style:
 - Avoid markdown headings, bullet lists, and robotic templates.
 - Speak naturally as a judge would in live court: short, crisp oral rulings.
 - If objection-focused, still include objection type, legal basis, ruling, and reasoning, but in plain spoken sentences.
+- CRITICAL: Keep your response extremely concise. Maximum 2 to 3 short sentences. The trial is very short.
 """.strip()
 
 

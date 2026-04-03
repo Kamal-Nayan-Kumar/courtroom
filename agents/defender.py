@@ -30,6 +30,7 @@ Response style:
 - Avoid markdown headings and numbered templates.
 - Cover defense position, prosecution weaknesses, legal points, and strategic counter naturally in flowing oral argument.
 - Never claim certainty without evidence support.
+- CRITICAL: Keep your response extremely concise. Maximum 2 to 3 short sentences. The trial is very short.
 """.strip()
 
 

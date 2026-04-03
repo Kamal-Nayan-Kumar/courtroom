@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import uuid
 from typing import Any
 
 import httpx
@@ -18,10 +19,9 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
-import os
 
 from graph.builder import build_courtroom_graph
 from graph.checkpointer import create_astra_checkpointer
@@ -30,7 +30,7 @@ app = FastAPI()
 
 GEMINI_MODEL_ENV = "GEMINI_CHAT_MODEL"
 GEMINI_MAX_OUTPUT_TOKENS_ENV = "GEMINI_MAX_OUTPUT_TOKENS"
-DEFAULT_GEMINI_MODEL = "gpt-4o-mini"
+DEFAULT_GEMINI_MODEL = "gpt-4o"
 DEFAULT_GEMINI_MAX_OUTPUT_TOKENS = 128
 
 
@@ -100,6 +100,31 @@ def _missing_env_vars(required: tuple[str, ...]) -> list[str]:
     return [name for name in required if not os.getenv(name)]
 
 
+def _ingest_uploaded_case_text(filename: str, parsed_text: str) -> tuple[str, int]:
+    from rag.splitter import LegalTextSplitter
+    from rag.vectorstore import get_vector_store
+
+    case_id = f"case-{uuid.uuid4().hex[:12]}"
+    splitter = LegalTextSplitter(chunk_size=800, chunk_overlap=120)
+    chunks = splitter.split_text(parsed_text)
+    if not chunks:
+        raise RuntimeError("No chunks generated from uploaded case details.")
+
+    metadatas = [
+        {
+            "source": filename,
+            "case_id": case_id,
+            "chunk_index": index,
+        }
+        for index in range(len(chunks))
+    ]
+    ids = [f"{case_id}-chunk-{index}" for index in range(len(chunks))]
+
+    vector_store = get_vector_store()
+    vector_store.add_texts(chunks, metadatas=metadatas, ids=ids)
+    return case_id, len(chunks)
+
+
 def _build_trial_stream_graph():
     missing = _missing_env_vars(("GITHUB_MODELS_API_KEY",))
     if missing:
@@ -119,11 +144,11 @@ def _build_trial_stream_graph():
         max_output_tokens = DEFAULT_GEMINI_MAX_OUTPUT_TOKENS
 
     llm = ChatOpenAI(
-        api_key=os.environ.get("GITHUB_MODELS_API_KEY"),
+        api_key=SecretStr(os.environ["GITHUB_MODELS_API_KEY"]),
         base_url="https://models.inference.ai.azure.com",
         model=selected_model,
         temperature=0,
-        max_tokens=max_output_tokens,
+        max_completion_tokens=max_output_tokens,
     )
     checkpointer = create_astra_checkpointer()
     return build_courtroom_graph(llm=llm, checkpointer=checkpointer)
@@ -148,11 +173,11 @@ def _build_suggestion_llm() -> ChatOpenAI:
         max_output_tokens = DEFAULT_GEMINI_MAX_OUTPUT_TOKENS
 
     return ChatOpenAI(
-        api_key=os.environ.get("GITHUB_MODELS_API_KEY"),
+        api_key=SecretStr(os.environ["GITHUB_MODELS_API_KEY"]),
         base_url="https://models.inference.ai.azure.com",
         model=selected_model,
         temperature=0,
-        max_tokens=max_output_tokens,
+        max_completion_tokens=max_output_tokens,
     )
 
 
@@ -266,6 +291,13 @@ def _extract_content(node_update: dict[str, Any]) -> str:
     return _normalize_courtroom_speech(_to_text(node_update).strip())
 
 
+def _has_spoken_turn(node_update: dict[str, Any]) -> bool:
+    transcript = node_update.get("transcript")
+    if not isinstance(transcript, list) or not transcript:
+        return False
+    return bool(_to_text(transcript[-1]).strip())
+
+
 def _normalize_courtroom_speech(text: str) -> str:
     if not text:
         return text
@@ -287,10 +319,15 @@ def _select_sarvam_speaker(voice_gender: str) -> str:
 
 @app.post("/api/v1/cases/upload")
 async def upload_case_file(file: UploadFile = File(...)) -> dict[str, str | int]:
-    if file.content_type not in {"text/plain", "application/octet-stream", None}:
+    if file.content_type not in {
+        "text/plain",
+        "application/octet-stream",
+        "text/markdown",
+        None,
+    }:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Unsupported file type. Please upload a plain text file.",
+            detail="Unsupported file type. Please upload a plain text or markdown file.",
         )
 
     raw_bytes = await file.read()
@@ -314,11 +351,30 @@ async def upload_case_file(file: UploadFile = File(...)) -> dict[str, str | int]
             detail="Uploaded file is empty.",
         )
 
+    filename = file.filename or "uploaded.txt"
+
+    try:
+        case_id, chunk_count = await asyncio.to_thread(
+            _ingest_uploaded_case_text,
+            filename,
+            parsed_text,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Failed to store uploaded case details for retrieval: "
+                f"{exc.__class__.__name__}: {exc}"
+            ),
+        ) from exc
+
     return {
-        "filename": file.filename or "uploaded.txt",
+        "filename": filename,
         "content_type": file.content_type or "application/octet-stream",
         "char_count": len(parsed_text),
         "parsed_text": parsed_text,
+        "case_id": case_id,
+        "chunk_count": chunk_count,
     }
 
 
@@ -361,8 +417,6 @@ async def generate_tts_audio(request: TTSRequest = Body(...)) -> dict[str, str]:
         "inputs": [request.text],
         "target_language_code": request.language_code,
         "speaker": _select_sarvam_speaker(request.voice_gender),
-        "pitch": 0,
-        "speed": 1.0,
         "model": "bulbul:v3",
     }
     headers = {
@@ -511,6 +565,8 @@ async def trial_stream(websocket: WebSocket) -> None:
                         continue
                     if not isinstance(node_update, dict):
                         continue
+                    if not _has_spoken_turn(node_update):
+                        continue
 
                     content = _extract_content(node_update)
                     if not content:
@@ -518,6 +574,7 @@ async def trial_stream(websocket: WebSocket) -> None:
 
                     await websocket.send_json(
                         {
+                            "event": "turn",
                             "turn": _extract_turn(node_name, node_update),
                             "content": content,
                             "current_turn": str(

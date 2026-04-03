@@ -48,6 +48,10 @@ async def _run() -> None:
         assert 0 <= payload["score"] <= 100
         assert isinstance(payload.get("feedback"), str)
         assert payload["feedback"].strip()
+        assert isinstance(payload.get("markdown"), str)
+        assert payload["markdown"].strip()
+        assert isinstance(payload.get("win_chance"), int)
+        assert 0 <= payload["win_chance"] <= 100
         print(payload)
     finally:
         main._generate_report = original
