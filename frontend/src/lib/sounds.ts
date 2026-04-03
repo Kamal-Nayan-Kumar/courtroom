@@ -84,23 +84,64 @@ export function playScoreDown() {
   osc.stop(ctx.currentTime + 0.4);
 }
 
-export function speakText(text: string, voice: 'judge' | 'prosecutor' | 'defender') {
+let voicesCache: SpeechSynthesisVoice[] = [];
+
+function getVoices(): SpeechSynthesisVoice[] {
+  if (voicesCache.length > 0) return voicesCache;
+  if (!('speechSynthesis' in window)) return [];
+  
+  voicesCache = window.speechSynthesis.getVoices();
+  return voicesCache;
+}
+
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = () => {
+    voicesCache = window.speechSynthesis.getVoices();
+  };
+}
+
+export function speakText(text: string, voiceRole: 'judge' | 'prosecutor' | 'defender' | string) {
   if (!('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  switch (voice) {
-    case 'judge':
-      utter.rate = 0.8;
-      utter.pitch = 0.7;
-      break;
-    case 'prosecutor':
-      utter.rate = 1.1;
-      utter.pitch = 1.1;
-      break;
-    case 'defender':
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
-      break;
+  
+  setTimeout(() => {
+    window.speechSynthesis.cancel();
+    
+    const utter = new SpeechSynthesisUtterance(text);
+    const voices = getVoices();
+    
+    const preferredVoices = voices.filter(v => v.lang.startsWith('en'));
+    const googleUk = preferredVoices.find(v => v.name.includes('Google UK English Male'));
+    const googleUs = preferredVoices.find(v => v.name.includes('Google US English'));
+    const defaultVoice = googleUk || googleUs || preferredVoices[0] || voices[0];
+    
+    if (defaultVoice) {
+      utter.voice = defaultVoice;
+    }
+
+    switch (voiceRole) {
+      case 'judge':
+        utter.rate = 0.8;
+        utter.pitch = 0.7;
+        break;
+      case 'prosecutor':
+        utter.rate = 1.1;
+        utter.pitch = 1.1;
+        break;
+      case 'defender':
+        utter.rate = 1.0;
+        utter.pitch = 1.0;
+        break;
+      default:
+        utter.rate = 1.0;
+        utter.pitch = 1.0;
+        break;
+    }
+    window.speechSynthesis.speak(utter);
+  }, 0);
+}
+
+export function stopAllSpeech() {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
   }
-  window.speechSynthesis.speak(utter);
 }

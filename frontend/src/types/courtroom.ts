@@ -31,6 +31,7 @@ export interface CaseData {
   type: CaseType;
   description: string;
   severity: number;
+  voiceGender: "male" | "female";
 }
 
 export interface DialogueEntry {

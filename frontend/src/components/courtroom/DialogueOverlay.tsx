@@ -10,6 +10,10 @@ interface DialogueOverlayProps {
   setUserInput: (v: string) => void;
   onSubmit: () => void;
   onObjection: () => void;
+  onAskSuggestion: () => void;
+  onStartVoiceInput: () => void;
+  isListeningVoice: boolean;
+  isSuggestionLoading: boolean;
 }
 
 const DialogueOverlay = ({
@@ -21,6 +25,10 @@ const DialogueOverlay = ({
   setUserInput,
   onSubmit,
   onObjection,
+  onAskSuggestion,
+  onStartVoiceInput,
+  isListeningVoice,
+  isSuggestionLoading,
 }: DialogueOverlayProps) => {
   return (
     <div className="absolute inset-x-8 bottom-8 z-40 flex flex-col items-center pointer-events-none">
@@ -43,11 +51,28 @@ const DialogueOverlay = ({
               className="flex-1 bg-transparent text-foreground text-lg md:text-xl font-serif outline-none placeholder:text-muted-foreground/50"
             />
             <button
+              onClick={onStartVoiceInput}
+              className={`font-bold px-4 py-2 uppercase tracking-widest rounded transition-colors border ${
+                isListeningVoice
+                  ? "text-red-300 border-red-400/60 bg-red-950/40"
+                  : "text-gold-light border-gold-light/40 hover:bg-white/10"
+              }`}
+            >
+              {isListeningVoice ? "Listening..." : "Voice"}
+            </button>
+            <button
+              onClick={onAskSuggestion}
+              disabled={isSuggestionLoading}
+              className="text-gold-light font-bold px-4 py-2 uppercase tracking-widest disabled:opacity-40 hover:bg-white/10 rounded transition-colors border border-gold-light/40"
+            >
+              {isSuggestionLoading ? "Thinking..." : "AI Suggest"}
+            </button>
+            <button
               onClick={onSubmit}
               disabled={!userInput.trim()}
               className="text-gold-light font-bold px-4 py-2 uppercase tracking-widest disabled:opacity-30 hover:bg-white/10 rounded transition-colors"
             >
-              Speak
+              Submit
             </button>
             <button
               onClick={onObjection}

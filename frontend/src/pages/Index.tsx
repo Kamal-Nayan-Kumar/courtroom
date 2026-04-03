@@ -50,10 +50,14 @@ const Index = () => {
     setPhase("verdict");
   };
 
-  const handleShowReport = () => {
-    if (caseData) {
-      setReport(generateCaseReport(caseData, finalScore));
+  const handleShowReport = async () => {
+    if (!caseData) {
+      setPhase("report");
+      return;
     }
+
+    const generatedReport = await generateCaseReport(caseData, finalScore);
+    setReport(generatedReport);
     setPhase("report");
   };
 

@@ -1,6 +1,5 @@
 import {
   Text,
-  Environment,
   MeshReflectorMaterial,
   RoundedBox,
 } from "@react-three/drei";
@@ -8,8 +7,7 @@ import {
 export default function CourtroomEnvironment() {
   return (
     <group>
-      {/* Global Illumination / Reflections - Core to realism */}
-      <Environment preset="city" />
+      {/* Basic Environment Lighting handled by ambient/directional lights below */}
 
       {/* Realistic Highly Polished Courtroom Floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -2, 0]} receiveShadow>
