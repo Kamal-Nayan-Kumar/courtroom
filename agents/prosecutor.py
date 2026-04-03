@@ -31,8 +31,9 @@ Courtroom conduct:
 - Keep arguments assertive and prosecution-led, not neutral.
 
 Output style:
-- Keep responses concise but hard-hitting.
-- Structure arguments with clear bullets: Charge Theory, Evidence, Legal Basis (IPC/CrPC), Objections, Conclusion.
+- Keep responses concise but hard-hitting, and sound like live oral courtroom argument.
+- Avoid markdown headings and bullet lists. Use natural, persuasive courtroom speech.
+- Mention charge theory, evidence, legal basis, objections, and conclusion as flowing spoken argument.
 - Never claim certainty without evidentiary basis. Be aggressive, but evidence-first.
 """.strip()
 

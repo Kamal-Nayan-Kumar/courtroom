@@ -103,7 +103,13 @@ def build_courtroom_graph(llm, checkpointer=None):
         prompt = _latest_user_prompt(state)
         return judge_agent.invoke({"input": prompt})
 
+    def _is_user_role(state, role: str) -> bool:
+        current_role = str(state.get("user_role", "")).strip().lower()
+        return current_role == role
+
     def prosecutor_node(state):
+        if _is_user_role(state, "prosecutor"):
+            return {"current_turn": "defender"}
         response = _invoke_prosecutor(state)
         next_turn = "judge" if state.get("active_objection") else "defender"
         return {
@@ -112,6 +118,8 @@ def build_courtroom_graph(llm, checkpointer=None):
         }
 
     def defender_node(state):
+        if _is_user_role(state, "defender"):
+            return {"current_turn": "judge"}
         response = _invoke_defender(state)
         return {
             "transcript": [AIMessage(content=_to_text(response), name="defender")],
@@ -127,6 +135,10 @@ def build_courtroom_graph(llm, checkpointer=None):
         }
 
     def _route_after_prosecutor(state):
+        if _is_user_role(state, "prosecutor"):
+            return "defender_node"
+        if _is_user_role(state, "defender"):
+            return "judge_node"
         if state.get("active_objection"):
             return "judge_node"
         return "defender_node"

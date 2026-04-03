@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+import re
 from typing import Any
 
+import httpx
 from fastapi import (
     FastAPI,
+    Body,
     File,
     HTTPException,
     UploadFile,
@@ -55,6 +59,12 @@ class ReportRequest(BaseModel):
 class ReportResponse(BaseModel):
     score: int = Field(ge=0, le=100)
     feedback: str
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(min_length=1)
+    voice_gender: str = Field(default="female")
+    language_code: str = Field(default="en-IN")
 
 
 def _to_text(payload: Any) -> str:
@@ -111,7 +121,6 @@ def _build_trial_stream_graph():
     llm = ChatOpenAI(
         api_key=os.environ.get("GITHUB_MODELS_API_KEY"),
         base_url="https://models.inference.ai.azure.com",
-        
         model=selected_model,
         temperature=0,
         max_tokens=max_output_tokens,
@@ -141,7 +150,6 @@ def _build_suggestion_llm() -> ChatOpenAI:
     return ChatOpenAI(
         api_key=os.environ.get("GITHUB_MODELS_API_KEY"),
         base_url="https://models.inference.ai.azure.com",
-        
         model=selected_model,
         temperature=0,
         max_tokens=max_output_tokens,
@@ -254,8 +262,27 @@ def _extract_turn(node_name: str, node_update: dict[str, Any]) -> str:
 def _extract_content(node_update: dict[str, Any]) -> str:
     transcript = node_update.get("transcript")
     if isinstance(transcript, list) and transcript:
-        return _to_text(transcript[-1]).strip()
-    return _to_text(node_update).strip()
+        return _normalize_courtroom_speech(_to_text(transcript[-1]).strip())
+    return _normalize_courtroom_speech(_to_text(node_update).strip())
+
+
+def _normalize_courtroom_speech(text: str) -> str:
+    if not text:
+        return text
+
+    cleaned = text
+    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"^\s*#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*[-*]\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _select_sarvam_speaker(voice_gender: str) -> str:
+    normalized = voice_gender.strip().lower()
+    if normalized == "male":
+        return "arvind"
+    return "meera"
 
 
 @app.post("/api/v1/cases/upload")
@@ -321,6 +348,64 @@ async def report_trial_performance(request: ReportRequest) -> ReportResponse:
     return report
 
 
+@app.post("/api/v1/tts")
+async def generate_tts_audio(request: TTSRequest = Body(...)) -> dict[str, str]:
+    sarvam_api_key = os.getenv("SARVAM_API_KEY", "").strip()
+    if not sarvam_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Sarvam TTS is not configured. Missing SARVAM_API_KEY.",
+        )
+
+    payload = {
+        "inputs": [request.text],
+        "target_language_code": request.language_code,
+        "speaker": _select_sarvam_speaker(request.voice_gender),
+        "pitch": 0,
+        "speed": 1.0,
+        "model": "bulbul:v3",
+    }
+    headers = {
+        "api-subscription-key": sarvam_api_key,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.sarvam.ai/text-to-speech",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Sarvam TTS request failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
+
+    audios = data.get("audios") if isinstance(data, dict) else None
+    if not isinstance(audios, list) or not audios or not isinstance(audios[0], str):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Sarvam TTS response missing audio payload.",
+        )
+
+    try:
+        base64.b64decode(audios[0], validate=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Sarvam TTS returned invalid audio format: {exc}",
+        ) from exc
+
+    return {
+        "audio_base64": audios[0],
+        "mime_type": "audio/wav",
+    }
+
+
 @app.websocket("/api/v1/trial/stream")
 async def trial_stream(websocket: WebSocket) -> None:
     await websocket.accept()
@@ -356,9 +441,22 @@ async def trial_stream(websocket: WebSocket) -> None:
 
         raw_message = payload.get("message")
         raw_thread_id = payload.get("thread_id")
+        raw_player_role = payload.get("player_role")
+        raw_case_details = payload.get("case_details")
 
         message = raw_message.strip() if isinstance(raw_message, str) else ""
         thread_id = str(raw_thread_id).strip() if raw_thread_id is not None else ""
+        player_role = (
+            raw_player_role.strip().lower()
+            if isinstance(raw_player_role, str)
+            else "defender"
+        )
+        case_details = (
+            raw_case_details.strip() if isinstance(raw_case_details, str) else ""
+        )
+
+        if player_role not in {"defender", "prosecutor"}:
+            player_role = "defender"
 
         if not message:
             await websocket.send_json(
@@ -393,7 +491,11 @@ async def trial_stream(websocket: WebSocket) -> None:
 
         try:
             async for event in graph.astream(
-                {"transcript": [HumanMessage(content=message)]},
+                {
+                    "transcript": [HumanMessage(content=message)],
+                    "user_role": player_role,
+                    "case_details": case_details,
+                },
                 config={
                     "configurable": {"thread_id": thread_id},
                     "recursion_limit": 20,
@@ -418,10 +520,20 @@ async def trial_stream(websocket: WebSocket) -> None:
                         {
                             "turn": _extract_turn(node_name, node_update),
                             "content": content,
+                            "current_turn": str(
+                                node_update.get("current_turn", "")
+                            ).strip(),
+                            "player_role": player_role,
                         }
                     )
 
-            await websocket.send_json({"event": "done", "thread_id": thread_id})
+            await websocket.send_json(
+                {
+                    "event": "done",
+                    "thread_id": thread_id,
+                    "player_role": player_role,
+                }
+            )
         except WebSocketDisconnect:
             return
         except Exception as exc:
