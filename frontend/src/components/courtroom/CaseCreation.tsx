@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { CaseData, CaseType } from '@/types/courtroom';
+import { uploadCaseFile } from '@/lib/mockApi';
 
 interface CaseCreationProps {
   onSubmit: (data: CaseData) => void;
@@ -20,10 +21,22 @@ const CaseCreation = ({ onSubmit }: CaseCreationProps) => {
   const [description, setDescription] = useState('');
   const [severity, setSeverity] = useState(50);
   const [evidence, setEvidence] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('female');
 
-  const handleSubmit = () => {
-    if (!title.trim() || !description.trim()) return;
-    onSubmit({ title, type, description, severity });
+  const handleSubmit = async () => {
+    if (!title.trim() || !description.trim() || isSubmitting) return;
+    
+    setIsSubmitting(true);
+    try {
+      const file = new File([description], "case.txt", { type: "text/plain" });
+      await uploadCaseFile(file);
+    } catch (error) {
+      console.error("Failed to upload case file:", error);
+    } finally {
+      setIsSubmitting(false);
+      onSubmit({ title, type, description, severity, voiceGender });
+    }
   };
 
   const mockAddEvidence = () => {
@@ -141,14 +154,40 @@ const CaseCreation = ({ onSubmit }: CaseCreationProps) => {
           </div>
 
           {/* Submit */}
+          <div>
+            <label className="block text-sm font-display text-primary mb-2">🎙️ Court Voice Preference</label>
+            <div className="grid grid-cols-2 gap-2">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setVoiceGender('female')}
+                className={`court-embossed text-sm font-body cursor-pointer transition-colors ${
+                  voiceGender === 'female' ? 'text-primary border-primary/50' : 'text-muted-foreground'
+                }`}
+              >
+                Female Voice
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setVoiceGender('male')}
+                className={`court-embossed text-sm font-body cursor-pointer transition-colors ${
+                  voiceGender === 'male' ? 'text-primary border-primary/50' : 'text-muted-foreground'
+                }`}
+              >
+                Male Voice
+              </motion.button>
+            </div>
+          </div>
+
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleSubmit}
-            disabled={!title.trim() || !description.trim()}
+            disabled={!title.trim() || !description.trim() || isSubmitting}
             className="w-full court-embossed text-primary font-display text-lg tracking-wide cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-4"
           >
-            ⚖️ Initiate Trial
+            {isSubmitting ? "Uploading Case..." : "⚖️ Initiate Trial"}
           </motion.button>
         </div>
       </motion.div>
