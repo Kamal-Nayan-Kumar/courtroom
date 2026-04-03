@@ -28,7 +28,12 @@ const Index = () => {
 
   const handleRoleSelect = (role: PlayerRole) => {
     setPlayerRole(role);
-    setPhase("character-selection");
+    setCharacterStyles({
+      judge: "judge-1",
+      defender: "defender-1",
+      prosecutor: "prosecutor-1",
+    });
+    setPhase("case-creation");
   };
 
   const handleCharacterSelect = (styles: CharacterStyles) => {
@@ -81,12 +86,7 @@ const Index = () => {
       {phase === "role-selection" && (
         <RoleSelection key="role" onSelect={handleRoleSelect} />
       )}
-      {phase === "character-selection" && (
-        <CharacterSelection
-          key="character"
-          onComplete={handleCharacterSelect}
-        />
-      )}
+
       {phase === "case-creation" && (
         <CaseCreation key="case" onSubmit={handleCaseSubmit} />
       )}
