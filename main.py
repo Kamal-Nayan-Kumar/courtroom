@@ -413,6 +413,8 @@ async def generate_tts_audio(request: TTSRequest = Body(...)) -> dict[str, str]:
             detail="Sarvam TTS is not configured. Missing SARVAM_API_KEY.",
         )
 
+    request.language_code = "en-IN"
+
     payload = {
         "inputs": [request.text],
         "target_language_code": request.language_code,

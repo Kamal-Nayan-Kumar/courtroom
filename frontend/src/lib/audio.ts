@@ -203,7 +203,7 @@ export async function playSarvamTts(params: {
         }
       } catch (error) {
         console.warn("Sarvam TTS failed, using fallback:", error);
-        await fallbackTts(cleanText, params.speaker);
+        await fallbackTts(cleanText, params.speaker, params.voiceGender);
         return;
       }
     });
@@ -211,14 +211,83 @@ export async function playSarvamTts(params: {
   return playbackChain;
 }
 
-export async function fallbackTts(text: string, speaker: "judge" | "prosecutor" | "defender"): Promise<void> {
+function matchesVoiceGender(voice: SpeechSynthesisVoice, voiceGender: "male" | "female"): boolean {
+  const voiceName = voice.name.toLowerCase();
+  const genderHints = voiceGender === "male"
+    ? ["male", "man", "arvind", "ravi", "amit", "rahul"]
+    : ["female", "woman", "meera", "aditi", "raveena", "sangeeta"];
+
+  return genderHints.some((hint) => voiceName.includes(hint));
+}
+
+function selectPreferredVoice(
+  voices: SpeechSynthesisVoice[],
+  voiceGender: "male" | "female",
+): SpeechSynthesisVoice | null {
+  const indianVoices = voices.filter((voice) => {
+    const lang = voice.lang || "";
+    return lang.includes("en-IN") || lang.includes("IN");
+  });
+
+  const indianGenderMatch = indianVoices.find((voice) => matchesVoiceGender(voice, voiceGender));
+  if (indianGenderMatch) {
+    return indianGenderMatch;
+  }
+  if (indianVoices.length > 0) {
+    return indianVoices[0];
+  }
+
+  const englishVoices = voices.filter((voice) => (voice.lang || "").toLowerCase().startsWith("en"));
+  const englishGenderMatch = englishVoices.find((voice) => matchesVoiceGender(voice, voiceGender));
+  if (englishGenderMatch) {
+    return englishGenderMatch;
+  }
+
+  const anyGenderMatch = voices.find((voice) => matchesVoiceGender(voice, voiceGender));
+  return anyGenderMatch || voices[0] || null;
+}
+
+async function getAvailableSpeechVoices(): Promise<SpeechSynthesisVoice[]> {
+  const immediateVoices = window.speechSynthesis.getVoices();
+  if (immediateVoices.length > 0) {
+    return immediateVoices;
+  }
+
+  return new Promise((resolve) => {
+    const onVoicesChanged = () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", onVoicesChanged);
+      resolve(window.speechSynthesis.getVoices());
+    };
+
+    window.speechSynthesis.addEventListener("voiceschanged", onVoicesChanged);
+    window.setTimeout(() => {
+      window.speechSynthesis.removeEventListener("voiceschanged", onVoicesChanged);
+      resolve(window.speechSynthesis.getVoices());
+    }, 300);
+  });
+}
+
+export async function fallbackTts(
+  text: string,
+  speaker: "judge" | "prosecutor" | "defender",
+  voiceGender: "male" | "female" = "female",
+): Promise<void> {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
     return Promise.resolve();
   }
 
+  const voices = await getAvailableSpeechVoices();
+  const selectedVoice = selectPreferredVoice(voices, voiceGender);
+
   return new Promise((resolve) => {
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "en-IN";
+
+    if (selectedVoice) {
+      utter.voice = selectedVoice;
+      utter.lang = selectedVoice.lang || "en-IN";
+    }
     
     utter.onend = () => resolve();
     utter.onerror = (e) => {

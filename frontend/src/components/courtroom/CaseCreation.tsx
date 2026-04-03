@@ -22,7 +22,7 @@ const CaseCreation = ({ onSubmit }: CaseCreationProps) => {
   const [description, setDescription] = useState('');
   const [severity, setSeverity] = useState(50);
   const [evidence, setEvidence] = useState<string[]>([]);
-  const [timerMinutes, setTimerMinutes] = useState<2 | 5 | 10>(2);
+  const [timerMinutes, setTimerMinutes] = useState<1 | 2 | 5 | 10>(2);
   const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('female');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -194,6 +194,13 @@ const CaseCreation = ({ onSubmit }: CaseCreationProps) => {
                 Session Timer
               </label>
               <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTimerMinutes(1)}
+                  className={`px-4 py-2 rounded border cursor-pointer ${timerMinutes === 1 ? 'border-[#D4AF37] text-[#D4AF37] bg-[#D4AF37]/10' : 'border-[#D4AF37]/30 text-gray-300'}`}
+                >
+                  1 Minute
+                </button>
                 <button
                   type="button"
                   onClick={() => setTimerMinutes(2)}

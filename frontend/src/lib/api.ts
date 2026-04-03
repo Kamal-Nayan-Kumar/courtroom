@@ -134,7 +134,7 @@ export async function requestFinalJudgment(params: {
   caseData: CaseData;
   transcript: DialogueEntry[];
   playerRole: PlayerRole;
-  timerMinutes: 2 | 5 | 10;
+  timerMinutes: 1 | 2 | 5 | 10;
 }): Promise<string> {
   const payload = {
     case_details: `${params.caseData.title}\n${params.caseData.description}`,

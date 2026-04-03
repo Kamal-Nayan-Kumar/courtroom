@@ -224,6 +224,79 @@ const CourtroomMain = ({
     };
   }, [caseData.title, handleIncomingTurn, playerRole, caseSummary]);
 
+  const handleFinalize = useCallback(async () => {
+    if (finalizingRef.current || trialEnded) return;
+    finalizingRef.current = true;
+    setIsFinalizing(true);
+    
+    useTrialStore.getState().setWaitingForUserInput(false);
+    useTrialStore.getState().beginDeliberation();
+
+    if (wsClientRef.current) {
+      wsClientRef.current.close();
+    }
+    
+    try {
+      const judgment = await requestFinalJudgment({
+        caseData,
+        transcript: useTrialStore.getState().transcript,
+        playerRole,
+        timerMinutes,
+      });
+
+      useTrialStore.getState().setActiveSpeaker("judge");
+      setCurrentText(judgment);
+      useTrialStore.getState().appendTranscript({
+        speaker: "judge",
+        text: judgment,
+        timestamp: Date.now(),
+      });
+      playGavel();
+
+      try {
+        await playSarvamTts({
+          text: judgment,
+          voiceGender,
+          speaker: "judge",
+        });
+      } catch (err) {
+        console.warn("TTS failed for final judgment", err);
+      }
+
+      const report = await requestFinalReport({
+        caseData,
+        transcript: useTrialStore.getState().transcript,
+        currentTurn: useTrialStore.getState().currentTurn,
+      });
+
+      onComplete(report);
+      useTrialStore.getState().completeTrial(report);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to finalize trial.";
+      useTrialStore.getState().setWsError(msg);
+      finalizingRef.current = false;
+      setIsFinalizing(false);
+    }
+  }, [caseData, playerRole, timerMinutes, voiceGender, onComplete, trialEnded]);
+
+  useEffect(() => {
+    if (trialEnded || phase === 'DELIBERATION' || isFinalizing) return;
+    
+    const interval = setInterval(() => {
+      const current = useTrialStore.getState().hud.timerRemainingSec;
+      if (current > 0) {
+        useTrialStore.getState().setTimerRemainingSec(current - 1);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [trialEnded, phase, isFinalizing]);
+
+  useEffect(() => {
+    if (timerRemainingSec === 0 && phase !== 'DELIBERATION' && !isFinalizing && !finalizingRef.current && !trialEnded) {
+      void handleFinalize();
+    }
+  }, [timerRemainingSec, phase, isFinalizing, handleFinalize, trialEnded]);
+
   const handleUserSubmit = async () => {
     if (!userInput.trim() || !waitingForUser || !wsClientRef.current || trialEnded) {
       return;

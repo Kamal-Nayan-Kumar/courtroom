@@ -29,7 +29,7 @@ export interface CaseData {
   type: CaseType;
   description: string;
   severity: number;
-  timerMinutes: 2 | 5 | 10;
+  timerMinutes: 1 | 2 | 5 | 10;
   voiceGender: "male" | "female";
 }
 
